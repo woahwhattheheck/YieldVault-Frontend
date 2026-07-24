@@ -57,6 +57,7 @@ src/
   `src/constants/breakpoints.js`) widens the deposit/withdraw panel and the
   form wizard instead of leaving them phone-narrow, and tightens the
   wizard's vertical spacing for the shorter viewport
+- **Screen reader support** — route changes are announced to screen readers via an ARIA live region (`RouteAnnouncer` component), providing navigation feedback to users of assistive technologies
 
 ## Design & Typography System
 
