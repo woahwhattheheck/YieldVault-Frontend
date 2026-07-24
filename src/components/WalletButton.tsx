@@ -18,6 +18,7 @@ export default function WalletButton() {
           type="button"
           className="wallet-address"
           title={copied ? 'Copied!' : `Copy ${address}`}
+          aria-label={copied ? 'Copied!' : `Copy ${address}`}
           onClick={() => copy(address ?? '')}
         >
           {copied ? 'Copied!' : shortenAddress(address ?? '')}
