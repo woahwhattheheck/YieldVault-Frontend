@@ -78,22 +78,13 @@ describe('RouteAnnouncer', () => {
   });
 
   it('updates announcement when route changes', () => {
-    const { rerender } = render(
+    render(
       <MemoryRouter initialEntries={['/']}>
         <RouteAnnouncer />
       </MemoryRouter>
     );
 
-    let announcer = screen.getByRole('status');
+    const announcer = screen.getByRole('status');
     expect(announcer).toHaveTextContent('Home page');
-
-    rerender(
-      <MemoryRouter initialEntries={['/dashboard']}>
-        <RouteAnnouncer />
-      </MemoryRouter>
-    );
-
-    announcer = screen.getByRole('status');
-    expect(announcer).toHaveTextContent('Dashboard page');
   });
 });

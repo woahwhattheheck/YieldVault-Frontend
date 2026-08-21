@@ -56,7 +56,7 @@ describe('SlippageTolerance', () => {
     const customInput = screen.getByLabelText('Custom slippage tolerance');
     
     fireEvent.change(customInput, { target: { value: '2.5' } });
-    expect(customInput).toHaveValue('2.5');
+    expect(customInput).toHaveValue(2.5);
   });
 
   it('activates custom mode when focusing input', () => {
@@ -79,12 +79,12 @@ describe('SlippageTolerance', () => {
     // Test value above max
     fireEvent.change(customInput, { target: { value: '60' } });
     fireEvent.blur(customInput);
-    expect(customInput).toHaveValue('50');
+    expect(customInput).toHaveValue(50);
     
     // Test value below min
     fireEvent.change(customInput, { target: { value: '-5' } });
     fireEvent.blur(customInput);
-    expect(customInput).toHaveValue('0.5');
+    expect(customInput).toHaveValue(0.5);
   });
 
   it('persists slippage tolerance to localStorage', () => {
@@ -115,7 +115,7 @@ describe('SlippageTolerance', () => {
     // Enter invalid value
     fireEvent.change(customInput, { target: { value: 'abc' } });
     fireEvent.blur(customInput);
-    expect(customInput).toHaveValue('0.5');
+    expect(customInput).toHaveValue(0.5);
   });
 
   it('switches between preset and custom modes', () => {

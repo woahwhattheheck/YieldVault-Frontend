@@ -21,11 +21,12 @@ export function safeParseNumber(value) {
   }
   
   if (typeof value === 'string' && value.trim() !== '') {
-    const num = Number(value);
+    const normalizedValue = value.trim().replace(/,/g, '');
+    const num = Number(normalizedValue);
     if (!Number.isFinite(num)) return null;
     
     // Check for precision loss by converting back to string and comparing
-    const strValue = value.trim().replace(/,/g, '');
+    const strValue = normalizedValue;
     const numStr = String(num);
     
     // If the original string has more digits than can be safely represented

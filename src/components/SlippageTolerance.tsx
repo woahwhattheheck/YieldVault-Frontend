@@ -8,7 +8,10 @@ import { useAppContext } from '../context/AppContext';
  * The setting is persisted to localStorage via AppContext.
  */
 export default function SlippageTolerance() {
-  const { slippageTolerance, setSlippageTolerance } = useAppContext();
+  const { slippageTolerance, setSlippageTolerance } = useAppContext() as {
+    slippageTolerance: number;
+    setSlippageTolerance: (value: number) => void;
+  };
   const [isCustom, setIsCustom] = useState(![0.1, 0.5, 1.0].includes(slippageTolerance));
   const [customValue, setCustomValue] = useState(String(slippageTolerance));
 
@@ -30,7 +33,7 @@ export default function SlippageTolerance() {
 
   const handleCustomBlur = () => {
     const num = Number(customValue);
-    if (isNaN(num) || num < 0) {
+    if (customValue.trim() === '' || isNaN(num) || num < 0) {
       setCustomValue('0.5');
       setSlippageTolerance(0.5);
     } else if (num > 50) {
@@ -50,7 +53,7 @@ export default function SlippageTolerance() {
             className={`slippage-preset ${!isCustom && slippageTolerance === preset ? 'slippage-preset-active' : ''}`}
             onClick={() => handlePresetClick(preset)}
           >
-            {preset}%
+            {preset.toFixed(1)}%
           </button>
         ))}
         <div className={`slippage-custom ${isCustom ? 'slippage-custom-active' : ''}`}>

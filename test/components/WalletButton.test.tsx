@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import WalletButton from '../../src/components/WalletButton';
+import { useClipboard } from '../../src/hooks/useClipboard.js';
 
 // Mock the hooks
 vi.mock('../../src/hooks/useWallet.js', () => ({
@@ -14,10 +15,10 @@ vi.mock('../../src/hooks/useWallet.js', () => ({
 }));
 
 vi.mock('../../src/hooks/useClipboard.js', () => ({
-  useClipboard: () => ({
+  useClipboard: vi.fn(() => ({
     copied: false,
     copy: vi.fn(),
-  }),
+  })),
 }));
 
 describe('WalletButton', () => {
@@ -29,8 +30,7 @@ describe('WalletButton', () => {
   });
 
   it('updates aria-label when address is copied', () => {
-    const { useClipboard } = require('../../src/hooks/useClipboard.js');
-    useClipboard.mockReturnValue({
+    vi.mocked(useClipboard).mockReturnValue({
       copied: true,
       copy: vi.fn(),
     });
