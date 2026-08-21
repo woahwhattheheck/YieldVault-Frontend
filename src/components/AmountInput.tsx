@@ -74,12 +74,11 @@ export default function AmountInput({
     // Remove all non-numeric characters except decimal point and minus
     const cleanValue = inputValue.replace(/[^0-9.-]/g, '');
     
-    // Allow only one decimal point
-    const parts = cleanValue.split('.');
-    if (parts.length > 2) {
-      parts.pop();
-    }
-    const sanitized = parts.join('.');
+    // Allow only one decimal point while preserving all entered digits.
+    const decimalIndex = cleanValue.indexOf('.');
+    const sanitized = decimalIndex === -1
+      ? cleanValue
+      : `${cleanValue.slice(0, decimalIndex + 1)}${cleanValue.slice(decimalIndex + 1).replace(/\./g, '')}`;
     
     // Update the actual value (without separators)
     onChange(sanitized);

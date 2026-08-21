@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as walletService from '../services/wallet.js';
+import { DEFAULT_NETWORK, NETWORKS } from '../lib/networks.js';
 
 /**
  * Global application context. Holds wallet connection state and balances,
@@ -9,6 +10,8 @@ const AppContext = createContext(null);
 
 const SLIPPAGE_STORAGE_KEY = 'yieldvault:slippage-tolerance';
 const ASSET_STORAGE_KEY = 'yieldvault:last-asset';
+const NETWORK_STORAGE_KEY = 'yieldvault:network';
+const TIMEZONE_STORAGE_KEY = 'yieldvault:timezone';
 
 export function AppProvider({ children }) {
   const [address, setAddress] = useState(null);
@@ -30,6 +33,42 @@ export function AppProvider({ children }) {
     }
     return null; // No default asset
   });
+  const [network, setNetworkState] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(NETWORK_STORAGE_KEY);
+      if (stored === 'mainnet' || stored === 'testnet') return stored;
+    }
+    return DEFAULT_NETWORK;
+  });
+  const [timezone, setTimezoneState] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(TIMEZONE_STORAGE_KEY) || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    }
+    return 'UTC';
+  });
+
+  const setNetwork = useCallback((next) => {
+    if (!NETWORKS[next]) return;
+    setNetworkState(next);
+    try {
+      localStorage.setItem(NETWORK_STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, []);
+
+  const toggleNetwork = useCallback(() => {
+    setNetwork(network === 'testnet' ? 'mainnet' : 'testnet');
+  }, [network, setNetwork]);
+
+  const setTimezone = useCallback((next) => {
+    setTimezoneState(next);
+    try {
+      localStorage.setItem(TIMEZONE_STORAGE_KEY, next);
+    } catch {
+      /* storage unavailable — ignore */
+    }
+  }, []);
 
   const connect = useCallback(async () => {
     setConnecting(true);
@@ -83,6 +122,13 @@ export function AppProvider({ children }) {
     setSlippageTolerance,
     lastAsset,
     setLastAsset,
+    network,
+    networkConfig: NETWORKS[network],
+    isMainnet: network === 'mainnet',
+    setNetwork,
+    toggleNetwork,
+    timezone,
+    setTimezone,
     isConnected: Boolean(address),
     connect,
     disconnect,

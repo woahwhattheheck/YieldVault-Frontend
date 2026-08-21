@@ -17,7 +17,10 @@ const TIMEZONES = [
  * Synchronizes with AppContext and persists selection to localStorage.
  */
 export default function TimezoneSelector() {
-  const { timezone, setTimezone } = useAppContext();
+  const { timezone, setTimezone } = useAppContext() as {
+    timezone: string;
+    setTimezone: (timezone: string) => void;
+  };
   const systemTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // If the user's timezone choice matches their local system timezone,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import AmountInput from '../src/components/AmountInput';
+import { vi } from 'vitest';
+import AmountInput from '../../src/components/AmountInput';
 
 describe('AmountInput', () => {
   it('renders with default props', () => {
@@ -35,7 +36,7 @@ describe('AmountInput', () => {
   });
 
   it('calls onChange with sanitized value', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(<AmountInput value="" onChange={handleChange} />);
     
     const input = screen.getByRole('textbox');
@@ -45,7 +46,7 @@ describe('AmountInput', () => {
   });
 
   it('removes non-numeric characters except decimal point', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(<AmountInput value="" onChange={handleChange} />);
     
     const input = screen.getByRole('textbox');
@@ -55,7 +56,7 @@ describe('AmountInput', () => {
   });
 
   it('allows only one decimal point', () => {
-    const handleChange = jest.fn();
+    const handleChange = vi.fn();
     render(<AmountInput value="" onChange={handleChange} />);
     
     const input = screen.getByRole('textbox');

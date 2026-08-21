@@ -4,8 +4,8 @@ import { CONFIG } from '../constants/config';
  * Environment banner that displays when the app is running on testnet.
  * This helps users distinguish between testnet and mainnet environments.
  */
-export default function EnvironmentBanner() {
-  if (CONFIG.network !== 'testnet') {
+export default function EnvironmentBanner({ network = CONFIG.network }: { network?: string }) {
+  if (network !== 'testnet') {
     return null;
   }
 
