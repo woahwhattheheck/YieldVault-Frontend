@@ -8,11 +8,12 @@ import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount, formatDate } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
-import { useAppContext } from '../context/AppContext';
 
 /**
  * Multi-step withdraw wizard for a vault. Guides the user through
  * entering an amount, reviewing the withdrawal, and confirming.
+ * Keyboard-complete with labelled controls, error association, and live
+ * announcements for share burns and transaction outcomes.
  * @param {object} props
  * @param {object} props.vault
  * @param {() => void} [props.onSuccess]
@@ -20,8 +21,7 @@ import { useAppContext } from '../context/AppContext';
 export default function WithdrawWizard({ vault, onSuccess }) {
   const { isConnected } = useWallet();
   const { positions } = usePositions();
-  const { slippageTolerance } = useAppContext();
-  const { timezone } = useAppContext();
+  const { slippageTolerance, timezone } = useAppContext();
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
 
@@ -84,13 +84,16 @@ export default function WithdrawWizard({ vault, onSuccess }) {
   function AmountStep({ data, setData, errors }) {
     const handleMax = () => setData({ amount: String(deposited) });
     const sharesBurned = previewWithdraw(data.amount, vault.totalAssets, vault.totalShares);
-    const touched = data.amount !== undefined && data.amount !== '';
+    const hasError = Boolean(errors.amount);
+    const errorId = 'wizard-withdraw-amount-error';
+    const previewId = 'wizard-withdraw-preview';
+    const balanceId = 'wizard-withdraw-balance';
 
     return (
       <div className="vault-form">
         <div className="form-row">
           <label htmlFor="wizard-withdraw-amount">Amount</label>
-          <span className="muted">
+          <span className="muted" id={balanceId}>
             Position: {formatAmount(deposited)} {vault.asset}
           </span>
         </div>
@@ -105,17 +108,36 @@ export default function WithdrawWizard({ vault, onSuccess }) {
             onChange={(e) => setData({ amount: e.target.value })}
             disabled={!isConnected || submitting}
             autoFocus
+            aria-invalid={hasError ? 'true' : 'false'}
+            aria-describedby={[balanceId, previewId, hasError ? errorId : null]
+              .filter(Boolean)
+              .join(' ')}
+            aria-errormessage={hasError ? errorId : undefined}
           />
-          <button type="button" className="max-btn" onClick={handleMax}>
+          <button
+            type="button"
+            className="max-btn"
+            onClick={handleMax}
+            aria-label={`Withdraw maximum ${formatAmount(deposited)} ${vault.asset}`}
+            disabled={!isConnected || submitting}
+          >
             MAX
           </button>
         </div>
-        <div className="preview-row">
+        <div
+          className="preview-row"
+          id={previewId}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span className="muted">Shares burned</span>
           <span>{formatAmount(sharesBurned)} shares</span>
         </div>
-        {touched && errors.amount && (
-          <p className="field-error">{errors.amount}</p>
+        {hasError && (
+          <p id={errorId} className="field-error" role="alert">
+            {errors.amount}
+          </p>
         )}
       </div>
     );
@@ -126,7 +148,7 @@ export default function WithdrawWizard({ vault, onSuccess }) {
     const sharesBurned = previewWithdraw(data.amount, vault.totalAssets, vault.totalShares);
 
     return (
-      <div className="wizard-review">
+      <div className="wizard-review" role="region" aria-label="Withdrawal review summary">
         <div className="wizard-review-row">
           <span className="wizard-review-label">Vault</span>
           <span className="wizard-review-value">{vault.name}</span>
@@ -166,8 +188,8 @@ export default function WithdrawWizard({ vault, onSuccess }) {
   function ConfirmStep() {
     if (!receipt) {
       return (
-        <div className="wizard-success">
-          <span className="wizard-success-icon">⏳</span>
+        <div className="wizard-success" role="status" aria-live="polite" aria-busy="true">
+          <span className="wizard-success-icon" aria-hidden="true">⏳</span>
           <div className="wizard-success-title">Processing withdrawal…</div>
           <div className="wizard-success-desc">Please wait while your transaction is confirmed.</div>
         </div>
@@ -176,8 +198,8 @@ export default function WithdrawWizard({ vault, onSuccess }) {
 
     if (receipt.error) {
       return (
-        <div className="wizard-success">
-          <span className="wizard-success-icon">❌</span>
+        <div className="wizard-success" role="alert" aria-live="assertive">
+          <span className="wizard-success-icon" aria-hidden="true">❌</span>
           <div className="wizard-success-title" style={{ color: 'var(--loss)' }}>Withdrawal failed</div>
           <div className="wizard-success-desc">{receipt.error}</div>
         </div>
@@ -185,8 +207,8 @@ export default function WithdrawWizard({ vault, onSuccess }) {
     }
 
     return (
-      <div className="wizard-success">
-        <span className="wizard-success-icon">🎉</span>
+      <div className="wizard-success" role="status" aria-live="polite">
+        <span className="wizard-success-icon" aria-hidden="true">🎉</span>
         <div className="wizard-success-title">Withdrawal successful!</div>
         <div className="wizard-success-desc">
           You withdrew {formatAmount(receipt.amount)} {receipt.asset}
@@ -208,8 +230,8 @@ export default function WithdrawWizard({ vault, onSuccess }) {
 
   if (!isConnected) {
     return (
-      <div className="empty-state" style={{ padding: '2rem 1rem' }}>
-        <span style={{ fontSize: '2rem' }}>🔌</span>
+      <div className="empty-state" style={{ padding: '2rem 1rem' }} role="status">
+        <span style={{ fontSize: '2rem' }} aria-hidden="true">🔌</span>
         <p className="empty-message">Connect your wallet to withdraw from this vault.</p>
       </div>
     );
@@ -218,8 +240,8 @@ export default function WithdrawWizard({ vault, onSuccess }) {
   // If user has no position in this vault, show a message instead of the wizard
   if (deposited <= 0) {
     return (
-      <div className="empty-state" style={{ padding: '2rem 1rem' }}>
-        <span style={{ fontSize: '2rem' }}>📭</span>
+      <div className="empty-state" style={{ padding: '2rem 1rem' }} role="status">
+        <span style={{ fontSize: '2rem' }} aria-hidden="true">📭</span>
         <p className="empty-message">
           You don't have any {vault.asset} deposited in this vault yet.
         </p>

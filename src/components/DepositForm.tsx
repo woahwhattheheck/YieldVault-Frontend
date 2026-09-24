@@ -11,6 +11,8 @@ import * as walletService from '../services/wallet.js';
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
  * shares to be minted, and submits a mock transaction.
+ * Associates validation errors with the amount field and announces preview /
+ * outcome updates via polite live regions for keyboard and screen-reader users.
  */
 
 interface DepositFormVault {
@@ -30,11 +32,15 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-
+  
   const balance = balanceOf(vault.asset);
   const { valid, error } = validateDeposit(amount, balance);
   const sharesOut = previewDeposit(amount as unknown as number, vault.totalAssets, vault.totalShares);
-  const touched = amount !== '';
+  const showError = Boolean(error) && amount !== '';
+  const errorId = 'deposit-amount-error';
+  const previewId = 'deposit-preview';
+  const balanceId = 'deposit-balance';
+  const messageId = 'deposit-form-message';
 
   const handleMax = () => setAmount(String(balance));
 
@@ -57,10 +63,10 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   };
 
   return (
-    <form className="vault-form" onSubmit={handleSubmit}>
+    <form className="vault-form" onSubmit={handleSubmit} noValidate>
       <div className="form-row">
         <label htmlFor="deposit-amount">Amount</label>
-        <span className="muted">
+        <span className="muted" id={balanceId}>
           Balance: {formatAmount(balance)} {vault.asset}
         </span>
       </div>
@@ -73,19 +79,44 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
           placeholder="0.00"
           min="0"
           step="any"
+          aria-invalid={showError ? true : false}
+          aria-describedby={[balanceId, previewId, showError ? errorId : null, message ? messageId : null]
+            .filter(Boolean)
+            .join(' ')}
+          aria-errormessage={showError ? errorId : undefined}
         />
-        <button type="button" className="max-btn" onClick={handleMax}>
+        <button
+          type="button"
+          className="max-btn"
+          onClick={handleMax}
+          aria-label={`Deposit maximum ${formatAmount(balance)} ${vault.asset}`}
+          disabled={!isConnected || submitting}
+        >
           MAX
         </button>
       </div>
 
-      <div className="preview-row">
+      <div
+        className="preview-row"
+        id={previewId}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <span className="muted">You receive</span>
         <span>{formatAmount(sharesOut)} shares</span>
       </div>
 
-      {touched && error && <p className="field-error">{error}</p>}
-      {message && <p className="form-message">{message}</p>}
+      {showError && (
+        <p id={errorId} className="field-error" role="alert">
+          {error}
+        </p>
+      )}
+      {message && (
+        <p id={messageId} className="form-message" role="status" aria-live="polite">
+          {message}
+        </p>
+      )}
 
       <Button type="submit" loading={submitting} disabled={!isConnected || !valid}>
         {isConnected ? 'Deposit' : 'Connect wallet to deposit'}

@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect, useId } from 'react';
 
 /**
  * A reusable multi-step form wizard with animated step transitions,
- * progress tracking, validation support, and keyboard navigation.
+ * progress tracking, validation support, keyboard navigation, and
+ * screen-reader announcements for step and validation changes.
  *
  * @param {object} props
  * @param {Array<{
@@ -45,28 +46,49 @@ export default function FormWizard({
   const [data, setData] = useState(initialData);
   const [errors, setErrors] = useState({});
   const [direction, setDirection] = useState('forward');
+  const [announcement, setAnnouncement] = useState('');
   const dataRef = useRef(data);
+  const headingRef = useRef(null);
+  const wizardId = useId();
   dataRef.current = data;
 
   const totalSteps = steps.length;
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === totalSteps - 1;
   const progress = totalSteps > 1 ? (currentStep / (totalSteps - 1)) * 100 : 100;
+  const activeStep = steps[currentStep];
+
+  /** Collect field errors for the current step; empty object means valid. */
+  const collectErrors = useCallback(
+    (stepIndex) => {
+      if (!validate) return {};
+      const stepErrors = validate(stepIndex, dataRef.current);
+      if (stepErrors && typeof stepErrors === 'object' && Object.keys(stepErrors).length > 0) {
+        return stepErrors;
+      }
+      return {};
+    },
+    [validate],
+  );
 
   const goNext = useCallback(() => {
     if (currentStep >= totalSteps - 1) return;
 
-    if (validate) {
-      const stepErrors = validate(currentStep, dataRef.current);
-      if (stepErrors && typeof stepErrors === 'object' && Object.keys(stepErrors).length > 0) {
-        setErrors(stepErrors);
-        return;
-      }
+    const stepErrors = collectErrors(currentStep);
+    if (Object.keys(stepErrors).length > 0) {
+      setErrors(stepErrors);
+      const messages = Object.values(stepErrors).filter(Boolean);
+      setAnnouncement(
+        messages.length
+          ? `Validation error: ${messages.join('. ')}`
+          : 'Please fix the highlighted fields before continuing.',
+      );
+      return;
     }
     setErrors({});
     setDirection('forward');
     setCurrentStep((s) => s + 1);
-  }, [currentStep, totalSteps, validate]);
+  }, [currentStep, totalSteps, collectErrors]);
 
   const goBack = useCallback(() => {
     if (currentStep <= 0) return;
@@ -81,16 +103,28 @@ export default function FormWizard({
   }, []);
 
   const handleSubmit = () => {
-    if (currentStep === totalSteps - 1) {
-      onComplete?.(dataRef.current);
+    if (currentStep !== totalSteps - 1) return;
+
+    const stepErrors = collectErrors(currentStep);
+    if (Object.keys(stepErrors).length > 0) {
+      setErrors(stepErrors);
+      const messages = Object.values(stepErrors).filter(Boolean);
+      setAnnouncement(
+        messages.length
+          ? `Validation error: ${messages.join('. ')}`
+          : 'Please fix the highlighted fields before submitting.',
+      );
+      return;
     }
+    setErrors({});
+    onComplete?.(dataRef.current);
   };
 
   /** Advance or submit when Enter is pressed AND no form control is focused. */
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter' || e.shiftKey) return;
     const tag = e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
     e.preventDefault();
     if (isLastStep) {
       handleSubmit();
@@ -99,18 +133,46 @@ export default function FormWizard({
     }
   };
 
-  const StepContent = steps[currentStep].content;
+  // Announce step changes and move focus to the panel heading so keyboard /
+  // screen-reader users land in the new step content (not a focus trap).
+  useEffect(() => {
+    const title = activeStep?.title ?? `Step ${currentStep + 1}`;
+    setAnnouncement(`Step ${currentStep + 1} of ${totalSteps}: ${title}`);
+    const frame = requestAnimationFrame(() => {
+      headingRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentStep, activeStep?.title, totalSteps]);
+
+  const StepContent = activeStep.content;
+  const panelId = `${wizardId}-panel-${activeStep.id}`;
+  const headingId = `${wizardId}-heading-${activeStep.id}`;
 
   return (
-    <div className="form-wizard" onKeyDown={handleKeyDown}>
-      {/* ── Step indicator ── */}
-      <div className="wizard-steps" role="tablist" aria-label="Form steps">
+    <div
+      className="form-wizard"
+      onKeyDown={handleKeyDown}
+      aria-busy={submitting ? 'true' : undefined}
+    >
+      {/* Visually hidden live region: step changes + validation summaries */}
+      <div
+        className="wizard-live-region"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="wizard-live-region"
+      >
+        {announcement}
+      </div>
+
+      {/* Step indicator — progress list, not interactive tabs (nav is Back/Next) */}
+      <ol className="wizard-steps" aria-label="Form steps">
         {steps.map((step, index) => {
           const isCompleted = index < currentStep;
           const isActive = index === currentStep;
 
           return (
-            <div
+            <li
               key={step.id}
               className={[
                 'wizard-step',
@@ -119,11 +181,9 @@ export default function FormWizard({
               ]
                 .filter(Boolean)
                 .join(' ')}
-              role="tab"
-              aria-selected={isActive}
-              aria-label={`Step ${index + 1}: ${step.title}`}
+              aria-current={isActive ? 'step' : undefined}
             >
-              <div className="wizard-step-indicator">
+              <div className="wizard-step-indicator" aria-hidden="true">
                 {isCompleted ? (
                   <svg className="wizard-step-check" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="20 6 9 17 4 12" />
@@ -149,17 +209,24 @@ export default function FormWizard({
                   aria-hidden="true"
                 />
               )}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
 
-      {/* ── Progress bar ── */}
-      <div className="wizard-progress-bar" role="progressbar" aria-valuenow={Math.round(progress)} aria-valuemin={0} aria-valuemax={100}>
+      {/* Progress bar */}
+      <div
+        className="wizard-progress-bar"
+        role="progressbar"
+        aria-label="Wizard progress"
+        aria-valuenow={Math.round(progress)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
         <div className="wizard-progress-fill" style={{ width: `${progress}%` }} />
       </div>
 
-      {/* ── Step content ── */}
+      {/* Step content */}
       <div className="wizard-content">
         {steps.map((step, index) => {
           const isEntering = index === currentStep;
@@ -172,21 +239,29 @@ export default function FormWizard({
           return (
             <div
               key={step.id}
+              id={isEntering ? panelId : undefined}
               className={['wizard-panel', dirClass, isEntering && 'wizard-panel-active']
                 .filter(Boolean)
                 .join(' ')}
               hidden={!isEntering}
-              role="tabpanel"
-              aria-label={step.title}
+              role="group"
+              aria-labelledby={isEntering ? headingId : undefined}
             >
               {isEntering && (
                 <>
                   {step.icon && (
-                    <div className="wizard-panel-icon-wrapper">
+                    <div className="wizard-panel-icon-wrapper" aria-hidden="true">
                       <span className="wizard-panel-icon">{step.icon}</span>
                     </div>
                   )}
-                  <h3 className="wizard-panel-title">{step.title}</h3>
+                  <h3
+                    id={headingId}
+                    ref={headingRef}
+                    className="wizard-panel-title"
+                    tabIndex={-1}
+                  >
+                    {step.title}
+                  </h3>
                   {step.description && (
                     <p className="wizard-panel-desc">{step.description}</p>
                   )}
@@ -208,7 +283,7 @@ export default function FormWizard({
         })}
       </div>
 
-      {/* ── Navigation ── */}
+      {/* Navigation */}
       <div className="wizard-nav">
         {!isFirstStep && (
           <button
@@ -216,15 +291,16 @@ export default function FormWizard({
             className="btn btn-ghost wizard-nav-back"
             onClick={goBack}
             disabled={submitting}
+            aria-label="Go to previous step"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6" />
             </svg>
             Back
           </button>
         )}
         <div className="wizard-nav-right">
-          <span className="wizard-step-counter">
+          <span className="wizard-step-counter" aria-hidden="true">
             Step {currentStep + 1} of {totalSteps}
           </span>
           {isLastStep ? (
@@ -233,6 +309,7 @@ export default function FormWizard({
               className="btn btn-primary"
               onClick={handleSubmit}
               disabled={submitting}
+              aria-disabled={submitting ? 'true' : undefined}
             >
               {submitting ? completingLabel : completeLabel}
             </button>
@@ -242,9 +319,11 @@ export default function FormWizard({
               className="btn btn-primary wizard-nav-next"
               onClick={goNext}
               disabled={submitting}
+              aria-disabled={submitting ? 'true' : undefined}
+              aria-label={`Continue to step ${currentStep + 2} of ${totalSteps}`}
             >
               Next
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <polyline points="9 18 15 12 9 6" />
               </svg>
             </button>

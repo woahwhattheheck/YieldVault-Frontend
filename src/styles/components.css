@@ -795,12 +795,36 @@
   gap: 1.5rem;
 }
 
+/* Screen-reader live region for step/validation announcements */
+.wizard-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.wizard-panel-title:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.wizard-panel-title:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* Step indicator */
 .wizard-steps {
   display: flex;
   align-items: flex-start;
   gap: 0;
   padding: 0.5rem 0;
+  margin: 0;
+  list-style: none;
 }
 
 .wizard-step {

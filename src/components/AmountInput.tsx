@@ -9,6 +9,11 @@ interface AmountInputProps {
   step?: string;
   id?: string;
   className?: string;
+  'aria-invalid'?: boolean | 'true' | 'false';
+  'aria-describedby'?: string;
+  'aria-errormessage'?: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
 }
 
 /**
@@ -35,6 +40,7 @@ function safeParseNumber(value: string): number | null {
  * Amount input component with thousands separators.
  * Formats the display value with commas while maintaining the raw numeric value.
  * Guards against precision loss on large amounts.
+ * Forwards ARIA attributes so callers can associate labels and errors.
  */
 export default function AmountInput({
   value,
@@ -45,6 +51,11 @@ export default function AmountInput({
   step = 'any',
   id,
   className = '',
+  'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedBy,
+  'aria-errormessage': ariaErrorMessage,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }: AmountInputProps) {
   const [displayValue, setDisplayValue] = useState('');
 
@@ -108,6 +119,11 @@ export default function AmountInput({
       disabled={disabled}
       className={className}
       inputMode="decimal"
+      aria-invalid={ariaInvalid}
+      aria-describedby={ariaDescribedBy}
+      aria-errormessage={ariaErrorMessage}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
     />
   );
 }
