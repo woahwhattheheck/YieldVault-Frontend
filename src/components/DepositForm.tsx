@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import TxStatus from './TxStatus';
 import { useWallet } from '../hooks/useWallet.js';
+import { useTxLifecycle } from '../hooks/useTxLifecycle.js';
 import { validateDeposit } from '../utils/validate.js';
 import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
@@ -10,7 +12,7 @@ import * as walletService from '../services/wallet.js';
 
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
- * shares to be minted, and submits a mock transaction.
+ * shares to be minted, and submits through a refresh-safe tx lifecycle.
  */
 
 interface DepositFormVault {
@@ -28,8 +30,18 @@ interface DepositFormProps {
 export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const { isConnected, balanceOf } = useWallet();
   const [amount, setAmount] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { operation, status, busy, run, reset } = useTxLifecycle({
+    kind: 'deposit',
+    vaultId: vault.id,
+  });
+
+  // After refresh, restore the persisted amount so retry stays available.
+  useEffect(() => {
+    if (operation?.amount && amount === '') {
+      setAmount(String(operation.amount));
+    }
+  }, [operation?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const balance = balanceOf(vault.asset);
   const { valid, error } = validateDeposit(amount, balance);
@@ -38,22 +50,25 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
   const handleMax = () => setAmount(String(balance));
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    setSubmitting(true);
+  const submitDeposit = async (value: string) => {
     setMessage(null);
     try {
-      await vaultService.deposit(vault.id, Number(amount));
-      await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
-      setMessage(`Deposited ${amount} ${vault.asset}`);
+      await run(value, async () => {
+        await vaultService.deposit(vault.id, Number(value));
+        return walletService.signAndSubmit(`Deposit ${value} ${vault.asset}`);
+      });
+      setMessage(`Deposited ${value} ${vault.asset}`);
       setAmount('');
       onSuccess?.();
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Deposit failed');
-    } finally {
-      setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || busy) return;
+    await submitDeposit(amount);
   };
 
   return (
@@ -69,7 +84,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
           id="deposit-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || busy}
           placeholder="0.00"
           min="0"
           step="any"
@@ -85,10 +100,29 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
-      {message && <p className="form-message">{message}</p>}
+      {message && operation?.state === 'confirmed' && (
+        <p className="form-message">{message}</p>
+      )}
 
-      <Button type="submit" loading={submitting} disabled={!isConnected || !valid}>
-        {isConnected ? 'Deposit' : 'Connect wallet to deposit'}
+      <TxStatus
+        label={status.label}
+        detail={status.detail}
+        canRetry={status.canRetry}
+        needsNewSignature={status.needsNewSignature}
+        state={operation?.state}
+        onRetry={
+          status.canRetry
+            ? () => {
+                const value = amount || operation?.amount;
+                if (value) void submitDeposit(String(value));
+              }
+            : undefined
+        }
+        onDismiss={operation ? reset : undefined}
+      />
+
+      <Button type="submit" loading={busy} disabled={!isConnected || !valid || busy}>
+        {isConnected ? (busy ? 'Submitting…' : 'Deposit') : 'Connect wallet to deposit'}
       </Button>
     </form>
   );
