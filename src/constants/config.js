@@ -14,6 +14,9 @@ export const CONFIG = {
   // End inactive wallet sessions after 15 minutes and warn one minute beforehand.
   sessionTimeoutMs: 15 * 60 * 1000,
   sessionWarningMs: 60 * 1000,
+  // Aliases consumed by useIdleTimer / IdleGuard (same durations).
+  idleTimeoutMs: 15 * 60 * 1000,
+  idleWarningMs: 60 * 1000,
 };
 
 export default CONFIG;

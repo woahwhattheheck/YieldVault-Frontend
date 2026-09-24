@@ -1255,3 +1255,40 @@
   color: var(--muted);
   font-weight: var(--fw-medium);
 }
+
+
+/* Session expiry re-authentication banner */
+.session-expired-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+  background: color-mix(in srgb, #b45309 18%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #b45309 45%, transparent);
+}
+.session-expired-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.session-expired-copy p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.session-timeout-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.session-timeout-countdown {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+.session-timeout-urgent {
+  color: #dc2626;
+}
+.session-timeout-actions {
+  display: flex;
+  justify-content: flex-end;
+}
