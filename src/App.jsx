@@ -11,7 +11,23 @@ import Positions from './pages/Positions';
 import NotFound from './pages/NotFound';
 
 /**
+ * Wrap a page in a route-level boundary so a failed page remounts independently
+ * while the shell (banner / navbar / footer) stays interactive.
+ * @param {string} feature
+ * @param {import('react').ReactNode} element
+ */
+function withRouteBoundary(feature, element) {
+  return (
+    <ErrorBoundary level="route" feature={feature}>
+      {element}
+    </ErrorBoundary>
+  );
+}
+
+/**
  * Root layout: persistent navbar/footer with routed page content.
+ * Route boundaries isolate page failures; feature boundaries inside pages
+ * keep sibling widgets alive when one section crashes.
  */
 export default function App() {
   return (
@@ -20,15 +36,22 @@ export default function App() {
       <EnvironmentBanner />
       <Navbar />
       <main className="app-main">
-        <ErrorBoundary>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/vault/:id" element={<VaultDetail />} />
-            <Route path="/positions" element={<Positions />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </ErrorBoundary>
+        <Routes>
+          <Route path="/" element={withRouteBoundary('home', <Home />)} />
+          <Route
+            path="/dashboard"
+            element={withRouteBoundary('dashboard', <Dashboard />)}
+          />
+          <Route
+            path="/vault/:id"
+            element={withRouteBoundary('vault-detail', <VaultDetail />)}
+          />
+          <Route
+            path="/positions"
+            element={withRouteBoundary('positions', <Positions />)}
+          />
+          <Route path="*" element={withRouteBoundary('not-found', <NotFound />)} />
+        </Routes>
       </main>
       <Footer />
     </div>

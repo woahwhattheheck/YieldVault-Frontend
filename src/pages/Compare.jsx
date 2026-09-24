@@ -17,7 +17,7 @@ const MIN_COMPARE = 2;
  */
 export default function Compare() {
   useDocumentTitle('Compare Vaults');
-  const { vaults, loading, error, reload } = useVaults();
+  const { vaults, loading, error, correlationId, retryable, reload } = useVaults();
   const [selected, setSelected] = useState([]);
 
   // Derived: only the vaults currently selected
@@ -42,7 +42,16 @@ export default function Compare() {
   const selectAll = () => setSelected(vaults.slice(0, MAX_COMPARE).map((v) => v.id));
 
   if (loading) return <Loader label="Loading vaults…" />;
-  if (error) return <ErrorMessage message={error} onRetry={reload} />;
+  if (error) {
+    return (
+      <ErrorMessage
+        message={error}
+        onRetry={reload}
+        correlationId={correlationId}
+        retryable={retryable}
+      />
+    );
+  }
 
   // Build comparison rows
   const rows = buildComparisonRows(selectedVaults);

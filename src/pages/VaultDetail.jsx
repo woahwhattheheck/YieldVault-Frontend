@@ -7,6 +7,7 @@ import DepositForm from '../components/DepositForm';
 import WithdrawForm from '../components/WithdrawForm';
 import Loader from '../components/Loader';
 import ErrorMessage from '../components/ErrorMessage';
+import ErrorBoundary from '../components/ErrorBoundary';
 import LastUpdated from '../components/LastUpdated';
 import { formatUsd, formatPercent, formatAmount } from '../utils/format.js';
 import { sharePrice } from '../utils/shares.js';
@@ -22,11 +23,20 @@ const TABS = [
  */
 export default function VaultDetail() {
   const { id } = useParams();
-  const { vault, loading, error, lastUpdated, reload } = useVault(id);
+  const { vault, loading, error, correlationId, retryable, lastUpdated, reload } = useVault(id);
   const [tab, setTab] = useState('deposit');
 
   if (loading) return <Loader label="Loading vault…" />;
-  if (error) return <ErrorMessage message={error} onRetry={reload} />;
+  if (error) {
+    return (
+      <ErrorMessage
+        message={error}
+        onRetry={reload}
+        correlationId={correlationId}
+        retryable={retryable}
+      />
+    );
+  }
   if (!vault) return <ErrorMessage message="Vault not found" />;
 
   const asset = getAssetByCode(vault.asset);
@@ -65,11 +75,17 @@ export default function VaultDetail() {
 
       <div className="vault-actions">
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
-        {tab === 'deposit' ? (
-          <DepositForm vault={vault} onSuccess={reload} />
-        ) : (
-          <WithdrawForm vault={vault} onSuccess={reload} />
-        )}
+        <ErrorBoundary
+          level="feature"
+          feature={tab === 'deposit' ? 'deposit-form' : 'withdraw-form'}
+          resetKeys={[tab, vault.id]}
+        >
+          {tab === 'deposit' ? (
+            <DepositForm vault={vault} onSuccess={reload} />
+          ) : (
+            <WithdrawForm vault={vault} onSuccess={reload} />
+          )}
+        </ErrorBoundary>
       </div>
     </div>
   );

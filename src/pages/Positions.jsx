@@ -18,7 +18,7 @@ import { summarizePositions } from '../utils/positions.js';
 export default function Positions() {
   useDocumentTitle('Positions');
   const { isConnected } = useWallet();
-  const { positions, loading, error, reload } = usePositions();
+  const { positions, loading, error, correlationId, retryable, reload } = usePositions();
 
   if (!isConnected) {
     return (
@@ -32,7 +32,16 @@ export default function Positions() {
   }
 
   if (loading) return <Loader label="Loading positions…" />;
-  if (error) return <ErrorMessage message={error} onRetry={reload} />;
+  if (error) {
+    return (
+      <ErrorMessage
+        message={error}
+        onRetry={reload}
+        correlationId={correlationId}
+        retryable={retryable}
+      />
+    );
+  }
 
   if (positions.length === 0) {
     return (

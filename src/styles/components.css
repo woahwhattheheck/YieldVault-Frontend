@@ -1255,3 +1255,70 @@
   color: var(--muted);
   font-weight: var(--fw-medium);
 }
+
+/* Recoverable error boundaries */
+.error-boundary-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+  padding: 2.5rem 1rem;
+  margin: 1rem 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.error-boundary-fallback.error-boundary-feature {
+  padding: 1.75rem 1rem;
+}
+
+.error-boundary-hint {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  max-width: 28rem;
+  margin: 0;
+}
+
+.error-boundary-correlation {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  margin: 0.25rem 0 0.75rem;
+}
+
+.error-boundary-correlation code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.error-boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.error-message-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.error-correlation {
+  display: block;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.error-correlation code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85em;
+}

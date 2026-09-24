@@ -1,5 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as vaultService from '../services/vault.js';
+import {
+  assertWellFormedResponse,
+  captureFailure,
+} from '../utils/diagnostics.js';
+import { reportDiagnostic } from '../utils/telemetry.js';
 
 /**
  * Load APY history for a set of vaults, one fetch per vault (mirroring
@@ -11,6 +16,8 @@ import * as vaultService from '../services/vault.js';
  *   history: Record<string, Array<{date: string, apy: number}>>,
  *   loading: boolean,
  *   error: string|null,
+ *   correlationId: string|null,
+ *   retryable: boolean,
  *   reload: () => void,
  * }}
  */
@@ -18,6 +25,8 @@ export function useApyHistory(vaults) {
   const [history, setHistory] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [correlationId, setCorrelationId] = useState(null);
+  const [retryable, setRetryable] = useState(true);
 
   const load = useCallback(async () => {
     if (vaults.length === 0) {
@@ -27,17 +36,34 @@ export function useApyHistory(vaults) {
     }
     setLoading(true);
     setError(null);
+    setCorrelationId(null);
+    setRetryable(true);
     try {
       const results = await Promise.all(
         vaults.map((vault) => vaultService.getVaultApyHistory(vault.id)),
       );
       const byVault = {};
       for (const result of results) {
+        assertWellFormedResponse(result, {
+          requireKeys: ['vaultId', 'history'],
+          label: 'apy history',
+        });
+        assertWellFormedResponse(result.history, {
+          expectArray: true,
+          label: 'apy history entries',
+        });
         byVault[result.vaultId] = result.history;
       }
       setHistory(byVault);
     } catch (err) {
-      setError(err.message || 'Failed to load APY history');
+      const failure = captureFailure(err, {
+        feature: 'apy-history',
+        level: 'feature',
+      });
+      reportDiagnostic(failure.diagnostic);
+      setError(failure.message);
+      setCorrelationId(failure.correlationId);
+      setRetryable(failure.retryable);
     } finally {
       setLoading(false);
     }
@@ -50,7 +76,7 @@ export function useApyHistory(vaults) {
     load();
   }, [load]);
 
-  return { history, loading, error, reload: load };
+  return { history, loading, error, correlationId, retryable, reload: load };
 }
 
 export default useApyHistory;

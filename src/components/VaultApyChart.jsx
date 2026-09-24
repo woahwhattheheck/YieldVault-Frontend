@@ -15,7 +15,7 @@ import ErrorMessage from "./ErrorMessage";
  * @param {Array} props.vaults
  */
 export default function VaultApyChart({ vaults }) {
-  const { history, loading, error, reload } = useApyHistory(vaults);
+  const { history, loading, error, correlationId, retryable, reload } = useApyHistory(vaults);
   const [hiddenIds, setHiddenIds] = useState(() => new Set());
   const [showGrid, { toggle: toggleGrid }] = useToggle(true);
 
@@ -34,7 +34,16 @@ export default function VaultApyChart({ vaults }) {
   }, []);
 
   if (loading) return <Loader label="Loading APY history…" />;
-  if (error) return <ErrorMessage message={error} onRetry={reload} />;
+  if (error) {
+    return (
+      <ErrorMessage
+        message={error}
+        onRetry={reload}
+        correlationId={correlationId}
+        retryable={retryable}
+      />
+    );
+  }
 
   return (
     <div className="chart-card">

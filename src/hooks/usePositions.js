@@ -1,42 +1,71 @@
 import { useState, useEffect, useCallback } from 'react';
 import * as vaultService from '../services/vault.js';
-import { useWallet } from './useWallet.js';
+import {
+  assertWellFormedResponse,
+  captureFailure,
+} from '../utils/diagnostics.js';
+import { reportDiagnostic } from '../utils/telemetry.js';
 
 /**
- * Load the connected user's vault positions. Returns an empty list when
- * the wallet is not connected.
- * @returns {{ positions: Array, loading: boolean, error: string|null, lastUpdated: Date|null, reload: () => void }}
+ * Load the connected user's open positions.
+ * @returns {{
+ *   positions: Array,
+ *   loading: boolean,
+ *   error: string|null,
+ *   correlationId: string|null,
+ *   retryable: boolean,
+ *   lastUpdated: Date|null,
+ *   reload: () => void,
+ * }}
  */
 export function usePositions() {
-  const { isConnected } = useWallet();
   const [positions, setPositions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [correlationId, setCorrelationId] = useState(null);
+  const [retryable, setRetryable] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   const load = useCallback(async () => {
-    if (!isConnected) {
-      setPositions([]);
-      return;
-    }
     setLoading(true);
     setError(null);
+    setCorrelationId(null);
+    setRetryable(true);
     try {
-      const data = await vaultService.getPositions();
-      setPositions(data);
+      const list = await vaultService.getPositions();
+      assertWellFormedResponse(list, {
+        expectArray: true,
+        label: 'positions',
+      });
+      setPositions(list);
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err.message || 'Failed to load positions');
+      const failure = captureFailure(err, {
+        feature: 'positions',
+        level: 'feature',
+      });
+      reportDiagnostic(failure.diagnostic);
+      setError(failure.message);
+      setCorrelationId(failure.correlationId);
+      setRetryable(failure.retryable);
     } finally {
       setLoading(false);
     }
-  }, [isConnected]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  return { positions, loading, error, lastUpdated, reload: load };
+  return {
+    positions,
+    loading,
+    error,
+    correlationId,
+    retryable,
+    lastUpdated,
+    reload: load,
+  };
 }
 
 export default usePositions;
