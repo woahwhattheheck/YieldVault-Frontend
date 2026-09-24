@@ -1,0 +1,22 @@
+{
+  "position": {
+    "id": "pos_fixture_001",
+    "user": "GUSER_fixture_001",
+    "vaultId": "vault_fixture_001",
+    "shares": 1000,
+    "assetValue": 1000,
+    "earnings": 0,
+    "principal": 1000,
+    "createdAt": 1720000000000,
+    "updatedAt": 1720000000000
+  },
+  "tx": {
+    "txHash": "tx_fixture_deposit_001",
+    "operation": "deposit",
+    "status": "confirmed",
+    "timestamp": "2026-01-01T00:00:00.000Z",
+    "user": "GUSER_fixture_001",
+    "vaultId": "vault_fixture_001",
+    "amount": 1000
+  }
+}

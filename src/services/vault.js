@@ -1,11 +1,65 @@
 import { withLatency, clone } from './api.js';
 import { MOCK_VAULTS, MOCK_POSITIONS, MOCK_APY_HISTORY } from './mockData.js';
 import { previewDeposit, previewWithdraw } from '../utils/shares.js';
+import { ContractApiError } from './apiAdapter.js';
 
 /**
  * Mock vault service. Reads vault stats and user positions, and simulates
  * deposit/withdraw flows by computing the resulting shares locally.
+ *
+ * Test hooks can queue contract fixtures so UI tests exercise API error and
+ * precision paths without a live wallet or chain.
  */
+
+/** @type {unknown[]} */
+let queuedDepositResults = [];
+/** @type {unknown[]} */
+let queuedWithdrawResults = [];
+/** @type {unknown[]} */
+let queuedPositionResults = [];
+
+/**
+ * Test-only: queue the next deposit() outcomes (payload or ContractApiError-ready errorResponse).
+ * @param {unknown} result
+ */
+export function __queueDepositResultForTests(result) {
+  queuedDepositResults.push(result);
+}
+
+/**
+ * Test-only: queue the next withdraw() outcomes.
+ * @param {unknown} result
+ */
+export function __queueWithdrawResultForTests(result) {
+  queuedWithdrawResults.push(result);
+}
+
+/**
+ * Test-only: queue the next getPositions() outcomes.
+ * @param {unknown} result
+ */
+export function __queuePositionsResultForTests(result) {
+  queuedPositionResults.push(result);
+}
+
+/** Test-only reset of queued contract fixtures. */
+export function __resetVaultFixturesForTests() {
+  queuedDepositResults = [];
+  queuedWithdrawResults = [];
+  queuedPositionResults = [];
+}
+
+function takeQueued(queue) {
+  return queue.length ? queue.shift() : null;
+}
+
+function resolveOrThrow(queued) {
+  if (!queued) return null;
+  if (queued && typeof queued === 'object' && queued.error) {
+    throw new ContractApiError(queued);
+  }
+  return queued;
+}
 
 /**
  * List all available vaults with their stats.
@@ -27,9 +81,11 @@ export async function getVault(id) {
 
 /**
  * Fetch the connected user's open positions.
- * @returns {Promise<Array>}
+ * @returns {Promise<Array|object>}
  */
 export async function getPositions() {
+  const queued = resolveOrThrow(takeQueued(queuedPositionResults));
+  if (queued) return withLatency(clone(queued));
   return withLatency(clone(MOCK_POSITIONS));
 }
 
@@ -64,9 +120,12 @@ export async function getVaultApyHistory(vaultId, days = 30) {
  * Simulate a deposit and return the minted shares plus a receipt.
  * @param {string} vaultId
  * @param {number} amount
- * @returns {Promise<{ shares: number, vaultId: string }>}
+ * @returns {Promise<object>}
  */
 export async function deposit(vaultId, amount) {
+  const queued = resolveOrThrow(takeQueued(queuedDepositResults));
+  if (queued) return withLatency(clone(queued));
+
   const vault = MOCK_VAULTS.find((v) => v.id === vaultId);
   if (!vault) throw new Error('Vault not found');
   const shares = previewDeposit(amount, vault.totalAssets, vault.totalShares);
@@ -77,9 +136,12 @@ export async function deposit(vaultId, amount) {
  * Simulate a withdrawal and return the burned shares plus a receipt.
  * @param {string} vaultId
  * @param {number} amount
- * @returns {Promise<{ shares: number, vaultId: string }>}
+ * @returns {Promise<object>}
  */
 export async function withdraw(vaultId, amount) {
+  const queued = resolveOrThrow(takeQueued(queuedWithdrawResults));
+  if (queued) return withLatency(clone(queued));
+
   const vault = MOCK_VAULTS.find((v) => v.id === vaultId);
   if (!vault) throw new Error('Vault not found');
   const shares = previewWithdraw(amount, vault.totalAssets, vault.totalShares);

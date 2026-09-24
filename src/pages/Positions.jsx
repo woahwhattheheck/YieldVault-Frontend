@@ -5,20 +5,22 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import PositionRow from '../components/PositionRow';
 import StatCard from '../components/StatCard';
 import Loader from '../components/Loader';
-import ErrorMessage from '../components/ErrorMessage';
+import ApiErrorState from '../components/ApiErrorState';
 import EmptyState from '../components/EmptyState';
 import WalletButton from '../components/WalletButton';
 import ResizableTable from '../components/ResizableTable';
 import { formatUsd, formatAmount } from '../utils/format.js';
 import { summarizePositions } from '../utils/positions.js';
+import { adaptCaughtError } from '../services/apiAdapter.js';
 
 /**
  * Positions page: the user's open vault positions and total earned yield.
+ * API failures render through ApiErrorState (no raw response leakage).
  */
 export default function Positions() {
   useDocumentTitle('Positions');
   const { isConnected } = useWallet();
-  const { positions, loading, error, reload } = usePositions();
+  const { positions, loading, error, errorPayload, reload } = usePositions();
 
   if (!isConnected) {
     return (
@@ -32,7 +34,17 @@ export default function Positions() {
   }
 
   if (loading) return <Loader label="Loading positions…" />;
-  if (error) return <ErrorMessage message={error} onRetry={reload} />;
+
+  if (error) {
+    const uiError = errorPayload
+      ? adaptCaughtError(errorPayload)
+      : adaptCaughtError(new Error(error));
+    return (
+      <div data-testid="positions-error">
+        <ApiErrorState error={uiError} onRetry={reload} />
+      </div>
+    );
+  }
 
   if (positions.length === 0) {
     return (
@@ -52,7 +64,7 @@ export default function Positions() {
   const { totalValue, totalEarned } = summarizePositions(positions);
 
   return (
-    <div className="positions">
+    <div className="positions" data-testid="positions-view">
       <h1 className="page-title">Your Positions</h1>
 
       <div className="stat-grid">

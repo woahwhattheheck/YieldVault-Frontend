@@ -1,0 +1,16 @@
+{
+  "count": 1,
+  "positions": [
+    {
+      "id": "pos_fixture_001",
+      "user": "GUSER_fixture_001",
+      "vaultId": "vault_fixture_001",
+      "shares": 1000,
+      "assetValue": 1000,
+      "earnings": 0,
+      "principal": 1000,
+      "createdAt": 1720000000000,
+      "updatedAt": 1720000000000
+    }
+  ]
+}

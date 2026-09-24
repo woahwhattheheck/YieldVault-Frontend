@@ -1,0 +1,12 @@
+{
+  "error": {
+    "message": "The transaction provider is unavailable",
+    "status": 503,
+    "code": "PROVIDER_UNAVAILABLE",
+    "requestId": "req_fixture_provider_001",
+    "details": {
+      "retryable": true,
+      "operation": "deposit"
+    }
+  }
+}

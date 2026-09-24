@@ -1,0 +1,27 @@
+{
+  "count": 2,
+  "vaults": [
+    {
+      "id": "vault_fixture_001",
+      "name": "USDC Stable Yield",
+      "asset": "USDC",
+      "apy": 0.052,
+      "tvl": 1250000,
+      "totalAssets": 1250000,
+      "totalShares": 1250000,
+      "pricePerShare": 1,
+      "createdAt": 1720000000000
+    },
+    {
+      "id": "vault_fixture_002",
+      "name": "XLM Growth Vault",
+      "asset": "XLM",
+      "apy": 0.094,
+      "tvl": 480000,
+      "totalAssets": 480000,
+      "totalShares": 480000,
+      "pricePerShare": 1,
+      "createdAt": 1720000000000
+    }
+  ]
+}

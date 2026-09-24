@@ -1,0 +1,13 @@
+{
+  "error": {
+    "message": "Transaction failed on-chain",
+    "status": 422,
+    "code": "TRANSACTION_FAILED",
+    "requestId": "req_fixture_terminal_001",
+    "details": {
+      "retryable": false,
+      "operation": "withdraw",
+      "txStatus": "failed"
+    }
+  }
+}

@@ -512,6 +512,29 @@
   }
 }
 
+
+/* Contract-driven API error states */
+.api-error-state {
+  margin: 0.75rem 0;
+}
+.api-error-state .error-message {
+  margin: 0;
+}
+.api-error-state--pending .error-message {
+  background: rgba(241, 196, 15, 0.12);
+  border-color: rgba(241, 196, 15, 0.45);
+  color: #b78100;
+}
+.api-error-state--provider .error-message {
+  background: rgba(52, 152, 219, 0.12);
+  border-color: rgba(52, 152, 219, 0.4);
+  color: #2471a3;
+}
+.api-error-correlation {
+  margin: 0.35rem 0 0;
+  font-size: var(--fs-xs);
+}
+
 /* Error + empty states */
 .error-message {
   display: flex;

@@ -1,0 +1,12 @@
+{
+  "error": {
+    "message": "Not authorized to inspect this position",
+    "status": 403,
+    "code": "AUTHORIZATION_REQUIRED",
+    "requestId": "req_fixture_auth_001",
+    "details": {
+      "resource": "position",
+      "action": "read"
+    }
+  }
+}

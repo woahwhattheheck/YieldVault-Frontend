@@ -1,0 +1,30 @@
+{
+  "count": 2,
+  "pagination": {
+    "total": 2,
+    "limit": 20,
+    "offset": 0,
+    "hasMore": false
+  },
+  "transactions": [
+    {
+      "txHash": "tx_fixture_deposit_001",
+      "operation": "deposit",
+      "status": "confirmed",
+      "timestamp": "2026-01-01T00:00:00.000Z",
+      "user": "GUSER_fixture_001",
+      "vaultId": "vault_fixture_001",
+      "amount": 1000
+    },
+    {
+      "txHash": "tx_fixture_withdraw_001",
+      "operation": "withdraw",
+      "status": "pending",
+      "timestamp": "2026-01-01T00:00:01.000Z",
+      "user": "GUSER_fixture_001",
+      "vaultId": "vault_fixture_001",
+      "shares": 100,
+      "assets": 125.125
+    }
+  ]
+}

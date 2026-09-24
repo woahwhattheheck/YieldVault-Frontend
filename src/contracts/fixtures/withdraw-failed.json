@@ -1,0 +1,24 @@
+{
+  "withdrawnAssets": 0,
+  "tx": {
+    "txHash": "tx_fixture_withdraw_failed_001",
+    "operation": "withdraw",
+    "status": "failed",
+    "timestamp": "2026-01-01T00:00:02.000Z",
+    "user": "GUSER_fixture_001",
+    "vaultId": "vault_fixture_001",
+    "shares": 100,
+    "assets": 0
+  },
+  "position": {
+    "id": "pos_fixture_001",
+    "user": "GUSER_fixture_001",
+    "vaultId": "vault_fixture_001",
+    "shares": 1000,
+    "assetValue": 1000,
+    "earnings": 0,
+    "principal": 1000,
+    "createdAt": 1720000000000,
+    "updatedAt": 1720000002000
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "error": {
+    "message": "Validation failed",
+    "status": 400,
+    "code": "VALIDATION_FAILED",
+    "requestId": "req_fixture_validation_001",
+    "details": [
+      "vaultId is required",
+      "amount must be greater than 0"
+    ]
+  }
+}

@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import ApiErrorState, { type ApiUiError } from './ApiErrorState';
 import { useWallet } from '../hooks/useWallet.js';
 import { validateDeposit } from '../utils/validate.js';
 import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
+import { adaptCaughtError, adaptDepositSuccess } from '../services/apiAdapter.js';
 
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
- * shares to be minted, and submits a mock transaction.
+ * shares to be minted, and submits a mock transaction. Contract API errors
+ * render through ApiErrorState so raw payloads never reach the DOM.
  */
 
 interface DepositFormVault {
@@ -30,6 +33,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [apiError, setApiError] = useState<ApiUiError | null>(null);
 
   const balance = balanceOf(vault.asset);
   const { valid, error } = validateDeposit(amount, balance);
@@ -43,21 +47,29 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
     if (!valid) return;
     setSubmitting(true);
     setMessage(null);
+    setApiError(null);
     try {
-      await vaultService.deposit(vault.id, Number(amount));
-      await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
-      setMessage(`Deposited ${amount} ${vault.asset}`);
+      const result = await vaultService.deposit(vault.id, Number(amount));
+      // When the service returns a v1 depositSuccess payload, adapt it.
+      if (result && typeof result === 'object' && 'position' in result && 'tx' in result) {
+        const adapted = adaptDepositSuccess(result);
+        await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
+        setMessage(`Deposited ${amount} ${vault.asset} (${adapted.tx.status})`);
+      } else {
+        await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
+        setMessage(`Deposited ${amount} ${vault.asset}`);
+      }
       setAmount('');
       onSuccess?.();
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : 'Deposit failed');
+      setApiError(adaptCaughtError(err));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <form className="vault-form" onSubmit={handleSubmit}>
+    <form className="vault-form" onSubmit={handleSubmit} data-testid="deposit-form">
       <div className="form-row">
         <label htmlFor="deposit-amount">Amount</label>
         <span className="muted">
@@ -85,7 +97,10 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
-      {message && <p className="form-message">{message}</p>}
+      {apiError && (
+        <ApiErrorState error={apiError} onRetry={apiError.retryable ? () => setApiError(null) : undefined} />
+      )}
+      {message && !apiError && <p className="form-message">{message}</p>}
 
       <Button type="submit" loading={submitting} disabled={!isConnected || !valid}>
         {isConnected ? 'Deposit' : 'Connect wallet to deposit'}
