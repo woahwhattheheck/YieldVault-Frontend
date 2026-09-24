@@ -7,6 +7,8 @@ import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
+import { useNetwork } from '../hooks/useNetwork.js';
+import { positionCache, positionQueryKey } from '../utils/positionCache.js';
 
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
@@ -26,7 +28,8 @@ interface DepositFormProps {
 }
 
 export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
-  const { isConnected, balanceOf } = useWallet();
+  const { isConnected, balanceOf, address } = useWallet();
+  const { network } = useNetwork();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -48,6 +51,8 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
       setMessage(`Deposited ${amount} ${vault.asset}`);
       setAmount('');
+      positionCache.invalidate(positionQueryKey({ actor: address, network, vaultId: vault.id, asset: vault.asset }));
+      positionCache.invalidate(positionQueryKey({ actor: address, network }));
       onSuccess?.();
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Deposit failed');

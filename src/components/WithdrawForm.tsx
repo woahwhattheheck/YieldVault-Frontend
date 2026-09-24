@@ -8,6 +8,8 @@ import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
+import { useNetwork } from '../hooks/useNetwork.js';
+import { positionCache, positionQueryKey } from '../utils/positionCache.js';
 
 /**
  * Withdraw form for a vault. Validates against the user's deposited amount,
@@ -27,7 +29,8 @@ interface WithdrawFormProps {
 }
 
 export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
-  const { isConnected } = useWallet();
+  const { isConnected, address } = useWallet();
+  const { network } = useNetwork();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -55,6 +58,8 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');
+      positionCache.invalidate(positionQueryKey({ actor: address, network, vaultId: vault.id, asset: vault.asset }));
+      positionCache.invalidate(positionQueryKey({ actor: address, network }));
       onSuccess?.();
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
