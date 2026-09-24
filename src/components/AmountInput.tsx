@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import {
+  parseLocaleAmount,
+  formatLocaleAmount,
+  serializeAmount,
+} from '../utils/localeAmount.js';
 
 interface AmountInputProps {
   value: string;
@@ -9,32 +14,18 @@ interface AmountInputProps {
   step?: string;
   id?: string;
   className?: string;
+  /** BCP-47 locale for display separators. Serialization stays canonical. */
+  locale?: string;
+  maxFractionDigits?: number;
+  /** Optional callback when parse fails (negative, excess precision, etc.). */
+  onValidationError?: (message: string | null) => void;
 }
 
 /**
- * Safely parse a string to a number, checking for precision loss.
- * Returns null if the value would lose precision.
- */
-function safeParseNumber(value: string): number | null {
-  if (!value || value.trim() === '') return null;
-  
-  const cleanNum = value.replace(/,/g, '');
-  const num = parseFloat(cleanNum);
-  
-  if (isNaN(num)) return null;
-  
-  // Check if the number is within safe integer range
-  if (Math.abs(num) > Number.MAX_SAFE_INTEGER) {
-    return null;
-  }
-  
-  return num;
-}
-
-/**
- * Amount input component with thousands separators.
- * Formats the display value with commas while maintaining the raw numeric value.
- * Guards against precision loss on large amounts.
+ * Amount input with locale-aware display separators.
+ * The value passed to `onChange` is always the canonical decimal string
+ * (`.` radix, no grouping) so transaction serialization never depends on
+ * the user's locale.
  */
 export default function AmountInput({
   value,
@@ -45,52 +36,77 @@ export default function AmountInput({
   step = 'any',
   id,
   className = '',
+  locale = typeof navigator !== 'undefined' ? navigator.language || 'en-US' : 'en-US',
+  maxFractionDigits = 7,
+  onValidationError,
 }: AmountInputProps) {
   const [displayValue, setDisplayValue] = useState('');
+  const [focused, setFocused] = useState(false);
 
-  // Format number with thousands separators
-  const formatWithSeparators = (numStr: string): string => {
-    if (!numStr || numStr === '') return '';
-    
-    const num = safeParseNumber(numStr);
-    
-    if (num === null) return numStr;
-    
-    // Format with thousands separators
-    return num.toLocaleString('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 20,
-    });
-  };
-
-  // Update display value when the actual value changes
   useEffect(() => {
-    setDisplayValue(formatWithSeparators(value));
-  }, [value]);
+    if (focused) {
+      setDisplayValue(value);
+      return;
+    }
+    if (!value) {
+      setDisplayValue('');
+      return;
+    }
+    try {
+      setDisplayValue(
+        formatLocaleAmount(serializeAmount(value, { locale: 'en-US', maxFractionDigits }), {
+          locale,
+          maxFractionDigits,
+        }),
+      );
+    } catch {
+      setDisplayValue(value);
+    }
+  }, [value, locale, maxFractionDigits, focused]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
-    
-    // Remove all non-numeric characters except decimal point and minus
-    const cleanValue = inputValue.replace(/[^0-9.-]/g, '');
-    
-    // Allow only one decimal point while preserving all entered digits.
-    const decimalIndex = cleanValue.indexOf('.');
-    const sanitized = decimalIndex === -1
-      ? cleanValue
-      : `${cleanValue.slice(0, decimalIndex + 1)}${cleanValue.slice(decimalIndex + 1).replace(/\./g, '')}`;
-    
-    // Update the actual value (without separators)
-    onChange(sanitized);
+    if (inputValue.trim() === '') {
+      onChange('');
+      onValidationError?.(null);
+      setDisplayValue('');
+      return;
+    }
+
+    const parsed = parseLocaleAmount(inputValue, { locale, maxFractionDigits });
+    if (!parsed.ok) {
+      // Keep the raw keystrokes visible while editing, but do not promote
+      // an invalid value into the serialized amount.
+      setDisplayValue(inputValue);
+      onValidationError?.(parsed.error);
+      return;
+    }
+
+    onValidationError?.(null);
+    onChange(parsed.canonical);
+    setDisplayValue(focused ? parsed.canonical : formatLocaleAmount(parsed.canonical, { locale, maxFractionDigits }));
   };
 
   const handleBlur = () => {
-    // Re-apply formatting on blur to ensure consistent display
-    setDisplayValue(formatWithSeparators(value));
+    setFocused(false);
+    if (!value) {
+      setDisplayValue('');
+      return;
+    }
+    try {
+      setDisplayValue(
+        formatLocaleAmount(serializeAmount(value, { locale: 'en-US', maxFractionDigits }), {
+          locale,
+          maxFractionDigits,
+        }),
+      );
+    } catch {
+      setDisplayValue(value);
+    }
   };
 
   const handleFocus = () => {
-    // On focus, show the raw value without separators for easier editing
+    setFocused(true);
     setDisplayValue(value);
   };
 
@@ -108,6 +124,7 @@ export default function AmountInput({
       disabled={disabled}
       className={className}
       inputMode="decimal"
+      aria-invalid={undefined}
     />
   );
 }
