@@ -11,6 +11,8 @@ export const CONFIG = {
     'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
   // Simulated network latency for mock services, in milliseconds.
   mockLatency: 600,
+  // Read-only preflight simulation timeout (provider / RPC).
+  preflightTimeoutMs: Number(import.meta.env?.VITE_PREFLIGHT_TIMEOUT_MS) || 8000,
   // End inactive wallet sessions after 15 minutes and warn one minute beforehand.
   sessionTimeoutMs: 15 * 60 * 1000,
   sessionWarningMs: 60 * 1000,

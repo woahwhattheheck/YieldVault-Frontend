@@ -7,7 +7,9 @@ import { previewDeposit } from '../utils/shares.js';
 import { formatAmount, formatDate } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
-import { useAppContext } from '../context/AppContext';
+import { runPreflight } from '../services/preflight.js';
+import { shouldRequestSignature } from '../utils/preflight.js';
+import { CONFIG } from '../constants/config.js';
 
 /**
  * Multi-step deposit wizard for a vault. Guides the user through
@@ -17,9 +19,8 @@ import { useAppContext } from '../context/AppContext';
  * @param {() => void} [props.onSuccess]
  */
 export default function DepositWizard({ vault, onSuccess }) {
-  const { isConnected, balanceOf } = useWallet();
-  const { slippageTolerance } = useAppContext();
-  const { timezone } = useAppContext();
+  const { isConnected, balanceOf, address, walletNetwork } = useWallet();
+  const { network, slippageTolerance, timezone } = useAppContext();
   const [submitting, setSubmitting] = useState(false);
   const [receipt, setReceipt] = useState(null);
 
@@ -63,6 +64,23 @@ export default function DepositWizard({ vault, onSuccess }) {
   const handleComplete = async (data) => {
     setSubmitting(true);
     try {
+      const preflight = await runPreflight({
+        kind: 'deposit',
+        vaultId: vault.id,
+        amount: data.amount,
+        asset: vault.asset,
+        walletAddress: address,
+        network: walletNetwork ?? network,
+        expectedNetwork: network,
+        balance: balanceOf(vault.asset),
+        vault,
+        contractId: CONFIG.vaultContract,
+      });
+      if (!shouldRequestSignature(preflight, preflight.serializedTx, preflight.network)) {
+        setReceipt({ error: preflight.reason || 'Preflight failed' });
+        return;
+      }
+
       const result = await vaultService.deposit(vault.id, Number(data.amount));
       await walletService.signAndSubmit(`Deposit ${data.amount} ${vault.asset}`);
       // Set receipt first so the success UI renders before the parent

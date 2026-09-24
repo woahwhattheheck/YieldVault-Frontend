@@ -1,17 +1,22 @@
 import React, { useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import PreflightStatus from './PreflightStatus';
 import { useWallet } from '../hooks/useWallet.js';
+import { useNetwork } from '../hooks/useNetwork.js';
 import { usePositions } from '../hooks/usePositions.js';
+import { usePreflight } from '../hooks/usePreflight.js';
 import { validateWithdraw } from '../utils/validate.js';
 import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
+import { shouldRequestSignature } from '../utils/preflight.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
 
 /**
  * Withdraw form for a vault. Validates against the user's deposited amount,
- * previews the shares to be burned, and submits a mock transaction.
+ * runs a read-only preflight before requesting a signature, and submits a
+ * mock transaction. Preflight success is advisory only.
  */
 
 interface WithdrawFormVault {
@@ -19,6 +24,9 @@ interface WithdrawFormVault {
   asset: string;
   totalAssets: number;
   totalShares: number;
+  paused?: boolean;
+  minAmount?: number;
+  maxAmount?: number;
 }
 
 interface WithdrawFormProps {
@@ -27,7 +35,8 @@ interface WithdrawFormProps {
 }
 
 export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
-  const { isConnected } = useWallet();
+  const { isConnected, address, walletNetwork } = useWallet();
+  const { network } = useNetwork();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -35,6 +44,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
+  const connectedNetwork = walletNetwork ?? network;
   const { valid, error } = validateWithdraw(amount, deposited);
   const sharesBurned = previewWithdraw(
     amount as unknown as number,
@@ -43,18 +53,41 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   );
   const touched = amount !== '';
 
+  const preflight = usePreflight({
+    kind: 'withdraw',
+    vaultId: vault.id,
+    amount,
+    asset: vault.asset,
+    walletAddress: address,
+    network: connectedNetwork,
+    expectedNetwork: network,
+    position: deposited,
+    vault,
+  });
+
   const handleMax = () => setAmount(String(deposited));
+
+  const handleAmountChange = (next: string) => {
+    setAmount(next);
+    setMessage(null);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || submitting || preflight.running) return;
     setSubmitting(true);
     setMessage(null);
     try {
+      const result = await preflight.run();
+      if (!shouldRequestSignature(result, result.serializedTx ?? '', result.network)) {
+        return;
+      }
+
       await vaultService.withdraw(vault.id, Number(amount));
       await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');
+      preflight.reset();
       onSuccess?.();
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
@@ -62,6 +95,8 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       setSubmitting(false);
     }
   };
+
+  const busy = submitting || preflight.running;
 
   return (
     <form className="vault-form" onSubmit={handleSubmit}>
@@ -75,8 +110,8 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
         <AmountInput
           id="withdraw-amount"
           value={amount}
-          onChange={setAmount}
-          disabled={!isConnected || submitting}
+          onChange={handleAmountChange}
+          disabled={!isConnected || busy}
           placeholder="0.00"
           min="0"
           step="any"
@@ -92,15 +127,29 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
+      <PreflightStatus
+        status={preflight.result?.status}
+        message={preflight.message}
+        retryable={preflight.retryable}
+        onRetry={() => {
+          void preflight.run();
+        }}
+      />
       {message && <p className="form-message">{message}</p>}
 
       <Button
         type="submit"
         variant="secondary"
-        loading={submitting}
-        disabled={!isConnected || !valid}
+        loading={busy}
+        disabled={!isConnected || !valid || busy}
       >
-        {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
+        {isConnected
+          ? busy
+            ? preflight.running
+              ? 'Running preflight…'
+              : 'Withdrawing…'
+            : 'Withdraw'
+          : 'Connect wallet to withdraw'}
       </Button>
     </form>
   );

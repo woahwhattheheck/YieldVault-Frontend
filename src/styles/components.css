@@ -1255,3 +1255,38 @@
   color: var(--muted);
   font-weight: var(--fw-medium);
 }
+
+/* Preflight simulation status (value-moving txs) */
+.preflight-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+
+.preflight-status__message {
+  margin: 0;
+}
+
+.preflight-status--ok {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+
+.preflight-status--running {
+  color: var(--muted);
+}
+
+.preflight-status--retry {
+  border-color: color-mix(in srgb, #e6a700 50%, var(--border));
+  color: #b8860b;
+}
+
+.preflight-status--error {
+  border-color: color-mix(in srgb, var(--loss) 50%, var(--border));
+  color: var(--loss);
+}
