@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import TxStatus from './TxStatus';
 import { useWallet } from '../hooks/useWallet.js';
 import { usePositions } from '../hooks/usePositions.js';
+import { useTxLifecycle } from '../hooks/useTxLifecycle.js';
 import { validateWithdraw } from '../utils/validate.js';
 import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
@@ -11,7 +13,7 @@ import * as walletService from '../services/wallet.js';
 
 /**
  * Withdraw form for a vault. Validates against the user's deposited amount,
- * previews the shares to be burned, and submits a mock transaction.
+ * previews the shares to be burned, and submits through a refresh-safe tx lifecycle.
  */
 
 interface WithdrawFormVault {
@@ -30,8 +32,11 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const { isConnected } = useWallet();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const { operation, status, busy, run, reset } = useTxLifecycle({
+    kind: 'withdraw',
+    vaultId: vault.id,
+  });
 
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
@@ -45,22 +50,25 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const handleMax = () => setAmount(String(deposited));
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    setSubmitting(true);
+  const submitWithdraw = async (value: string) => {
     setMessage(null);
     try {
-      await vaultService.withdraw(vault.id, Number(amount));
-      await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
-      setMessage(`Withdrew ${amount} ${vault.asset}`);
+      await run(value, async () => {
+        await vaultService.withdraw(vault.id, Number(value));
+        return walletService.signAndSubmit(`Withdraw ${value} ${vault.asset}`);
+      });
+      setMessage(`Withdrew ${value} ${vault.asset}`);
       setAmount('');
       onSuccess?.();
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
-    } finally {
-      setSubmitting(false);
     }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid || busy) return;
+    await submitWithdraw(amount);
   };
 
   return (
@@ -76,7 +84,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
           id="withdraw-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || busy}
           placeholder="0.00"
           min="0"
           step="any"
@@ -92,15 +100,33 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
-      {message && <p className="form-message">{message}</p>}
+      {message && operation?.state === 'confirmed' && (
+        <p className="form-message">{message}</p>
+      )}
+
+      <TxStatus
+        label={status.label}
+        detail={status.detail}
+        canRetry={status.canRetry}
+        needsNewSignature={status.needsNewSignature}
+        state={operation?.state}
+        onRetry={
+          status.canRetry && amount
+            ? () => {
+                void submitWithdraw(amount);
+              }
+            : undefined
+        }
+        onDismiss={operation ? reset : undefined}
+      />
 
       <Button
         type="submit"
         variant="secondary"
-        loading={submitting}
-        disabled={!isConnected || !valid}
+        loading={busy}
+        disabled={!isConnected || !valid || busy}
       >
-        {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
+        {isConnected ? (busy ? 'Submitting…' : 'Withdraw') : 'Connect wallet to withdraw'}
       </Button>
     </form>
   );
