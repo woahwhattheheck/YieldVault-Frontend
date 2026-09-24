@@ -7,6 +7,10 @@ project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Restrictive CSP + dependency audit gate** — production hosting headers
+  (`public/_headers`, `vercel.json`), Vite preview parity, documented CSP
+  exceptions for Stellar wallet/RPC origins, and a CI gate that fails on
+  critical `npm audit` findings / disallowed licenses (`npm run audit:deps`).
 - **Idle-session auto-lock** — monitors user activity and warns 1 minute
   before auto-disconnecting the wallet after 15 minutes of inactivity.
   Includes a `SessionTimeoutModal` countdown with a "Stay Connected"

@@ -9,7 +9,11 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "security:emit-headers": "node security/emit-hosting-headers.mjs",
+    "audit:deps": "node security/check-deps.mjs",
+    "smoke:headers": "node security/smoke-headers.mjs",
+    "prebuild": "node security/emit-hosting-headers.mjs"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^12.0.0",

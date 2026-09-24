@@ -98,6 +98,19 @@ Reusable building blocks live under `src/utils` and `src/hooks`:
 - `hooks/useClipboard` — copy text with transient "copied" feedback
 - `hooks/useDocumentTitle` — set the browser tab title per page
 
+
+## Security headers & dependency gate
+
+Production responses ship a restrictive Content-Security-Policy and related
+hardening headers. The policy (including justified wallet/RPC exceptions) lives
+in `security/policy.mjs` and is documented in [`docs/CSP.md`](docs/CSP.md).
+
+```bash
+npm run security:emit-headers   # refresh public/_headers + vercel.json
+npm run audit:deps              # fail CI on critical vulns / disallowed licenses
+npm run smoke:headers           # build/preview and assert production headers
+```
+
 ## Scripts
 
 | Command           | Description              |
@@ -107,3 +120,5 @@ Reusable building blocks live under `src/utils` and `src/hooks`:
 | `npm run test`    | Run the test suite        |
 | `npm run preview` | Preview the build        |
 | `npm run test`    | Run Vitest tests         |
+| `npm run audit:deps` | Critical vuln / license gate |
+| `npm run smoke:headers` | Assert production security headers |

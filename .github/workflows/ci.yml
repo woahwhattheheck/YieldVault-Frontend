@@ -18,5 +18,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm install --no-audit --no-fund
+      # Fail the job on policy-defined critical dependency findings / disallowed licenses.
+      - name: Dependency vulnerability and license gate
+        run: npm run audit:deps
       - run: npm test
       - run: npm run build
+      - name: Production security header smoke test
+        run: npm run smoke:headers
