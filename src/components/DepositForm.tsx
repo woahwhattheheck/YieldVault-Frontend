@@ -7,10 +7,13 @@ import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
+import { CONFIG } from '../constants/config.js';
+import { shouldBlockMutations, getNetworkGuardState } from '../utils/networkGuard.js';
 
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
- * shares to be minted, and submits a mock transaction.
+ * shares to be minted, and submits a mock transaction. Mutations are blocked
+ * when the connected wallet network does not match the configured deployment.
  */
 
 interface DepositFormVault {
@@ -26,12 +29,14 @@ interface DepositFormProps {
 }
 
 export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
-  const { isConnected, balanceOf } = useWallet();
+  const { isConnected, balanceOf, walletNetwork } = useWallet();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const balance = balanceOf(vault.asset);
+  const networkBlocked = shouldBlockMutations(isConnected, walletNetwork, CONFIG.network);
+  const networkGuard = getNetworkGuardState(walletNetwork, CONFIG.network);
   const { valid, error } = validateDeposit(amount, balance);
   const sharesOut = previewDeposit(amount as unknown as number, vault.totalAssets, vault.totalShares);
   const touched = amount !== '';
@@ -40,12 +45,15 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || networkBlocked) return;
     setSubmitting(true);
     setMessage(null);
     try {
       await vaultService.deposit(vault.id, Number(amount));
-      await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
+      await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`, {
+        expectedNetwork: CONFIG.network,
+        walletNetwork,
+      });
       setMessage(`Deposited ${amount} ${vault.asset}`);
       setAmount('');
       onSuccess?.();
@@ -55,6 +63,13 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       setSubmitting(false);
     }
   };
+
+  let submitLabel = 'Connect wallet to deposit';
+  if (isConnected && networkBlocked) {
+    submitLabel = 'Switch network to deposit';
+  } else if (isConnected) {
+    submitLabel = 'Deposit';
+  }
 
   return (
     <form className="vault-form" onSubmit={handleSubmit}>
@@ -69,7 +84,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
           id="deposit-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || submitting || networkBlocked}
           placeholder="0.00"
           min="0"
           step="any"
@@ -85,10 +100,16 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
+      {networkBlocked && isConnected && (
+        <p className="field-error" role="alert">
+          Wrong network: wallet is on {networkGuard.connectedLabel || 'unknown'}, app expects{' '}
+          {networkGuard.expectedLabel}. Switch network to deposit.
+        </p>
+      )}
       {message && <p className="form-message">{message}</p>}
 
-      <Button type="submit" loading={submitting} disabled={!isConnected || !valid}>
-        {isConnected ? 'Deposit' : 'Connect wallet to deposit'}
+      <Button type="submit" loading={submitting} disabled={!isConnected || !valid || networkBlocked}>
+        {submitLabel}
       </Button>
     </form>
   );

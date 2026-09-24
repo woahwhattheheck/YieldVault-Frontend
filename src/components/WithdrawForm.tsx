@@ -8,10 +8,12 @@ import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
+import { CONFIG } from '../constants/config.js';
+import { shouldBlockMutations, getNetworkGuardState } from '../utils/networkGuard.js';
 
 /**
- * Withdraw form for a vault. Validates against the user's deposited amount,
- * previews the shares to be burned, and submits a mock transaction.
+ * Withdraw form for a vault. Mutations are blocked when the connected wallet
+ * network does not match the configured deployment.
  */
 
 interface WithdrawFormVault {
@@ -27,12 +29,14 @@ interface WithdrawFormProps {
 }
 
 export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
-  const { isConnected } = useWallet();
+  const { isConnected, walletNetwork } = useWallet();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  const networkBlocked = shouldBlockMutations(isConnected, walletNetwork, CONFIG.network);
+  const networkGuard = getNetworkGuardState(walletNetwork, CONFIG.network);
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
   const { valid, error } = validateWithdraw(amount, deposited);
@@ -47,12 +51,15 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || networkBlocked) return;
     setSubmitting(true);
     setMessage(null);
     try {
       await vaultService.withdraw(vault.id, Number(amount));
-      await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
+      await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`, {
+        expectedNetwork: CONFIG.network,
+        walletNetwork,
+      });
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');
       onSuccess?.();
@@ -62,6 +69,13 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       setSubmitting(false);
     }
   };
+
+  let submitLabel = 'Connect wallet to withdraw';
+  if (isConnected && networkBlocked) {
+    submitLabel = 'Switch network to withdraw';
+  } else if (isConnected) {
+    submitLabel = 'Withdraw';
+  }
 
   return (
     <form className="vault-form" onSubmit={handleSubmit}>
@@ -76,7 +90,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
           id="withdraw-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || submitting || networkBlocked}
           placeholder="0.00"
           min="0"
           step="any"
@@ -92,15 +106,21 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
+      {networkBlocked && isConnected && (
+        <p className="field-error" role="alert">
+          Wrong network: wallet is on {networkGuard.connectedLabel || 'unknown'}, app expects{' '}
+          {networkGuard.expectedLabel}. Switch network to withdraw.
+        </p>
+      )}
       {message && <p className="form-message">{message}</p>}
 
       <Button
         type="submit"
         variant="secondary"
         loading={submitting}
-        disabled={!isConnected || !valid}
+        disabled={!isConnected || !valid || networkBlocked}
       >
-        {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
+        {submitLabel}
       </Button>
     </form>
   );

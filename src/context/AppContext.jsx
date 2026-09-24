@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import * as walletService from '../services/wallet.js';
 import { DEFAULT_NETWORK, NETWORKS } from '../lib/networks.js';
+import { CONFIG } from '../constants/config.js';
+import { getNetworkGuardState } from '../utils/networkGuard.js';
 
 /**
  * Global application context. Holds wallet connection state and balances,
@@ -19,6 +21,7 @@ export function AppProvider({ children }) {
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
   const [walletNetwork, setWalletNetwork] = useState(null);
+  const [switchingNetwork, setSwitchingNetwork] = useState(false);
   const [slippageTolerance, setSlippageTolerance] = useState(() => {
     if (typeof localStorage !== 'undefined') {
       const stored = localStorage.getItem(SLIPPAGE_STORAGE_KEY);
@@ -76,10 +79,10 @@ export function AppProvider({ children }) {
     try {
       const { address: addr } = await walletService.connect();
       const bal = await walletService.getBalances();
-      const network = await walletService.getNetwork();
+      const detected = await walletService.getNetwork();
       setAddress(addr);
       setBalances(bal);
-      setWalletNetwork(network);
+      setWalletNetwork(detected);
     } catch (err) {
       setError(err.message || 'Failed to connect wallet');
     } finally {
@@ -93,6 +96,56 @@ export function AppProvider({ children }) {
     setBalances({});
     setWalletNetwork(null);
   }, []);
+
+  const refreshWalletNetwork = useCallback(async () => {
+    if (!address) {
+      setWalletNetwork(null);
+      return null;
+    }
+    const next = await walletService.getNetwork();
+    setWalletNetwork(next);
+    return next;
+  }, [address]);
+
+  /**
+   * Ask the wallet to switch onto the configured deployment network.
+   * Rejected switches leave walletNetwork unchanged and surface a safe error.
+   */
+  const switchWalletNetwork = useCallback(async (target = CONFIG.network) => {
+    setSwitchingNetwork(true);
+    setError(null);
+    try {
+      const next = await walletService.switchNetwork(target);
+      setWalletNetwork(next);
+      return next;
+    } catch (err) {
+      // User rejection / provider failure — do not mutate walletNetwork.
+      setError(err.message || 'Network switch rejected');
+      throw err;
+    } finally {
+      setSwitchingNetwork(false);
+    }
+  }, []);
+
+  // When the app's selected network changes, drop stale wallet-network
+  // assumptions so a previous match cannot authorize mutations on the new
+  // deployment. Re-probe the wallet if still connected.
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshWalletNetwork() {
+      if (!address) return;
+      try {
+        const detected = await walletService.getNetwork();
+        if (!cancelled) setWalletNetwork(detected);
+      } catch {
+        if (!cancelled) setWalletNetwork(null);
+      }
+    }
+    refreshWalletNetwork();
+    return () => {
+      cancelled = true;
+    };
+  }, [network, address]);
 
   useEffect(() => {
     try {
@@ -112,12 +165,17 @@ export function AppProvider({ children }) {
     }
   }, [lastAsset]);
 
+  const expectedNetwork = CONFIG.network;
+  const networkGuard = getNetworkGuardState(walletNetwork, expectedNetwork);
+  const mutationsAllowed = Boolean(address) && networkGuard.ready;
+
   const value = {
     address,
     balances,
     connecting,
     error,
     walletNetwork,
+    switchingNetwork,
     slippageTolerance,
     setSlippageTolerance,
     lastAsset,
@@ -132,6 +190,12 @@ export function AppProvider({ children }) {
     isConnected: Boolean(address),
     connect,
     disconnect,
+    switchWalletNetwork,
+    refreshWalletNetwork,
+    expectedNetwork,
+    networkGuard,
+    mutationsAllowed,
+    isWrongNetwork: Boolean(address && walletNetwork && !networkGuard.ready),
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
