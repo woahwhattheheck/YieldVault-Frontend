@@ -64,6 +64,31 @@ describe('usePositions stale-response guard', () => {
     });
   });
 
+  it('reloads mounted consumers when a form invalidates the shared key', async () => {
+    vi.mocked(useWallet).mockReturnValue({
+      isConnected: true,
+      address: 'GACTOR1',
+    });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    vi.mocked(vaultService.getPositions)
+      .mockResolvedValueOnce([{ vaultId: 'v1', value: 10 }])
+      .mockResolvedValueOnce([{ vaultId: 'v1', value: 15 }]);
+
+    const { result } = renderHook(() => usePositions());
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'v1', value: 10 }]);
+    });
+
+    await act(async () => {
+      positionCache.invalidate(result.current.queryKey);
+    });
+
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'v1', value: 15 }]);
+    });
+    expect(vaultService.getPositions).toHaveBeenCalledTimes(2);
+  });
+
   it('invalidate + reload refreshes after a mutation', async () => {
     vi.mocked(useWallet).mockReturnValue({
       isConnected: true,
