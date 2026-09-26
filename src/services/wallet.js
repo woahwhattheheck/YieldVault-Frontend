@@ -86,15 +86,16 @@ export async function getBalances() {
  * match the configured deployment so a valid signature cannot land on the
  * wrong chain.
  * @param {string} summary - human-readable description of the tx
- * @param {{ expectedNetwork?: string, walletNetwork?: string|null }} [opts]
+ * @param {{ expectedNetwork?: string }} [opts]
  * @returns {Promise<{ hash: string, summary: string }>}
  */
 export async function signAndSubmit(summary, opts = {}) {
   const expected = opts.expectedNetwork ?? CONFIG.network;
-  const walletNetwork =
-    opts.walletNetwork !== undefined ? opts.walletNetwork : mockWalletNetwork ?? (await getNetwork());
+  // Re-read at submission time; a render-time network snapshot may already
+  // be stale after a wallet event or app network switch.
+  const walletNetwork = await getNetwork();
 
-  if (walletNetwork && walletNetwork !== expected) {
+  if (walletNetwork !== expected) {
     const err = new Error(
       `Wrong network: wallet is on ${walletNetwork}, app expects ${expected}`,
     );
