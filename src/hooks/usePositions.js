@@ -36,12 +36,16 @@ export function usePositions() {
 
   // Track the generation of the in-flight request so a late response is dropped.
   const inFlightGen = useRef(0);
+  const pendingAutoReload = useRef(false);
 
   const invalidate = useCallback(() => {
     positionCache.invalidate(queryKey);
   }, [queryKey]);
 
   const load = useCallback(async () => {
+    // A caller explicitly reloading right after invalidation supersedes the
+    // scheduled automatic refresh, so one mutation causes one request.
+    pendingAutoReload.current = false;
     if (!isConnected || !address) {
       setPositions([]);
       setPositionsKey(null);
@@ -107,7 +111,10 @@ export function usePositions() {
         setPositions([]);
         setPositionsKey(null);
         setLastUpdated(null);
-        void load();
+        pendingAutoReload.current = true;
+        queueMicrotask(() => {
+          if (pendingAutoReload.current) void load();
+        });
       } else if (event.type === 'data') {
         setPositions(event.data);
         setPositionsKey(queryKey);
