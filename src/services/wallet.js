@@ -79,12 +79,12 @@ function readMockTransactions() {
  * A mock status source; the real wallet adapter must query chain finality.
  * Absence of a record is unknown, never evidence of a failed transaction.
  * @param {{ clientOpId: string, txHash?: string|null }} ref
- * @returns {Promise<{status: 'pending'|'confirmed'|'failed'|'unknown', hash?: string|null}>}
+ * @returns {Promise<{status: 'pending'|'confirmed'|'failed'|'unknown', hash?: string|null, source: 'mock'}>}
  */
 export async function getTransactionStatus({ clientOpId, txHash }) {
   const record = readMockTransactions()[clientOpId];
   if (!record || (txHash && record.hash !== txHash)) {
-    return withLatency({ status: 'unknown' });
+    return withLatency({ status: 'unknown', source: 'mock' });
   }
-  return withLatency({ status: record.status, hash: record.hash });
+  return withLatency({ status: record.status, hash: record.hash, source: 'mock' });
 }
