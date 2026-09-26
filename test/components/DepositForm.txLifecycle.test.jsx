@@ -131,7 +131,7 @@ describe('DepositForm tx lifecycle e2e', () => {
     });
     render(<DepositForm vault={vault} onSuccess={onSuccess} />);
     await waitFor(() => expect(screen.getByText(/demo deposit simulated/i)).toBeInTheDocument());
-    expect(screen.getByText(/no on-chain confirmation/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/no on-chain confirmation/i)).toHaveLength(2);
     expect(onSuccess).toHaveBeenCalledTimes(1);
     expect(walletService.signAndSubmit).toHaveBeenCalledTimes(1);
   });
