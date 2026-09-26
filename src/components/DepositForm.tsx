@@ -52,7 +52,6 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       await vaultService.deposit(vault.id, Number(amount));
       await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`, {
         expectedNetwork: CONFIG.network,
-        walletNetwork,
       });
       setMessage(`Deposited ${amount} ${vault.asset}`);
       setAmount('');
