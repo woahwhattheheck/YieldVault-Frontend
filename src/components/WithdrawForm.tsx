@@ -58,7 +58,6 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       await vaultService.withdraw(vault.id, Number(amount));
       await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`, {
         expectedNetwork: CONFIG.network,
-        walletNetwork,
       });
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');
