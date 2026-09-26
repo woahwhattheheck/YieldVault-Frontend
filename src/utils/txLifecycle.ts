@@ -1,30 +1,9 @@
-/**
- * Vault mutation transaction lifecycle.
- *
- * States model backend/contract progress:
- *   idle → submitted → confirming → confirmed
- *                     ↘ failed (terminal, retryable or not)
- *                     ↘ unknown (provider timeout / lost response)
- *
- * A correlation reference (clientOpId) is persisted so a refresh can restore
- * status without automatically re-submitting. Retry reuses the same op when
- * the failure is retryable and the payload is unchanged; a new signature is
- * required when the wallet must re-authorize.
- */
-
+/** A persisted correlation record. The ID is not a contract idempotency key. */
 export const TX_STATES = [
-  'idle',
-  'submitted',
-  'confirming',
-  'confirmed',
-  'failed',
-  'unknown',
+  'idle', 'submitted', 'confirming', 'confirmed', 'failed', 'unknown',
 ] as const;
 
 export type TxState = (typeof TX_STATES)[number];
-
-export const TERMINAL_TX_STATES: TxState[] = ['confirmed', 'failed'];
-
 const STORAGE_KEY = 'yieldvault.txOps';
 
 export type TxOperation = {
@@ -32,6 +11,8 @@ export type TxOperation = {
   kind: 'deposit' | 'withdraw';
   vaultId: string;
   amount: string;
+  walletAddress: string;
+  network: string;
   state: TxState;
   txHash?: string | null;
   error?: string | null;
@@ -44,32 +25,20 @@ export type TxStatusDescription = {
   label: string | null;
   detail: string | null;
   canRetry: boolean;
+  canCheckStatus: boolean;
+  canDismiss: boolean;
   needsNewSignature: boolean;
 };
 
-export type TxEvent =
-  | 'submit'
-  | 'provider_ack'
-  | 'confirmed'
-  | 'failed'
-  | 'timeout'
-  | 'reset';
+export type TxEvent = 'submit' | 'provider_ack' | 'confirmed' | 'failed' | 'timeout' | 'reset';
 
-/** @returns stable client-side correlation id */
 export function createClientOpId(): string {
   if (globalThis.crypto?.randomUUID) return `op_${globalThis.crypto.randomUUID()}`;
   return `op_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
-/** Canonical fingerprint for a vault mutation intent. */
-export function fingerprintMutation({
-  kind,
-  vaultId,
-  amount,
-}: {
-  kind: string;
-  vaultId: string;
-  amount: string | number;
+export function fingerprintMutation({ kind, vaultId, amount }: {
+  kind: string; vaultId: string; amount: string | number;
 }): string {
   return [kind, vaultId, String(amount ?? '').trim()].join('|');
 }
@@ -85,168 +54,74 @@ function readStore(): Record<string, TxOperation> {
   }
 }
 
-function writeStore(store: Record<string, TxOperation>): void {
-  try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store));
-  } catch {
-    // ignore quota / private mode
-  }
-}
-
 export function saveTxOperation(op: TxOperation): void {
-  if (!op?.clientOpId) return;
   const store = readStore();
   store[op.clientOpId] = { ...op, updatedAt: new Date().toISOString() };
-  writeStore(store);
+  // A submission without durable correlation cannot be recovered safely.
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
 
 export function getTxOperation(clientOpId: string): TxOperation | null {
-  if (!clientOpId) return null;
   return readStore()[clientOpId] ?? null;
 }
 
-/** Latest non-terminal op for a vault+kind, if any. */
-export function getActiveTxOperation({
-  kind,
-  vaultId,
-}: {
-  kind?: string;
-  vaultId?: string;
-} = {}): TxOperation | null {
-  const ops = Object.values(readStore());
-  const active = ops
-    .filter((op) => {
-      if (!op || TERMINAL_TX_STATES.includes(op.state)) return false;
-      if (kind && op.kind !== kind) return false;
-      if (vaultId && op.vaultId !== vaultId) return false;
-      return true;
-    })
-    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)));
-  return active[0] ?? null;
+/** Restore the latest unresolved or failed operation for this wallet and network. */
+export function getActiveTxOperation({ kind, vaultId, walletAddress, network }: {
+  kind: string; vaultId: string; walletAddress: string; network: string;
+}): TxOperation | null {
+  return Object.values(readStore())
+    .filter((op) => op?.kind === kind && op.vaultId === vaultId &&
+      op.walletAddress === walletAddress && op.network === network &&
+      op.state !== 'confirmed')
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] ?? null;
 }
 
 export function clearTxOperation(clientOpId: string): void {
-  if (!clientOpId) return;
   const store = readStore();
   delete store[clientOpId];
-  writeStore(store);
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(store));
 }
 
-/**
- * Pure state-machine transition.
- */
-export function transitionTxState(
-  current: TxState,
-  event: TxEvent,
-  _meta: { retryable?: boolean; needsNewSignature?: boolean } = {},
-): TxState {
+export function transitionTxState(current: TxState, event: TxEvent): TxState {
   switch (event) {
-    case 'submit':
-      if (current === 'submitted' || current === 'confirming') return current;
-      return 'submitted';
-    case 'provider_ack':
-      if (current === 'submitted' || current === 'unknown') return 'confirming';
-      return current;
-    case 'confirmed':
-      if (current === 'confirming' || current === 'submitted' || current === 'unknown') {
-        return 'confirmed';
-      }
-      return current;
-    case 'failed':
-      if (current === 'confirmed') return current;
-      return 'failed';
-    case 'timeout':
-      if (current === 'submitted' || current === 'confirming') return 'unknown';
-      return current;
-    case 'reset':
-      return 'idle';
-    default:
-      return current;
+    case 'submit': return current === 'submitted' || current === 'confirming' ? current : 'submitted';
+    case 'provider_ack': return current === 'submitted' || current === 'unknown' ? 'confirming' : current;
+    case 'confirmed': return current === 'submitted' || current === 'confirming' || current === 'unknown' ? 'confirmed' : current;
+    case 'failed': return current === 'confirmed' ? current : 'failed';
+    case 'timeout': return current === 'submitted' || current === 'confirming' ? 'unknown' : current;
+    case 'reset': return 'idle';
   }
 }
 
-/**
- * Human-readable copy + recovery affordances for a lifecycle state.
- */
 export function describeTxStatus(op: TxOperation | null): TxStatusDescription {
-  if (!op || op.state === 'idle') {
-    return { label: null, detail: null, canRetry: false, needsNewSignature: false };
-  }
+  const base = { canRetry: false, canCheckStatus: false, canDismiss: false, needsNewSignature: false };
+  if (!op || op.state === 'idle') return { ...base, label: null, detail: null };
+  const reference = op.txHash ? ` Transaction hash: ${op.txHash}.` : ` Reference: ${op.clientOpId}.`;
   switch (op.state) {
     case 'submitted':
-      return {
-        label: 'Submitted',
-        detail: 'Waiting for the wallet / provider to acknowledge the transaction.',
-        canRetry: false,
-        needsNewSignature: false,
-      };
+      return { ...base, canCheckStatus: true, label: 'Submitted', detail: `Waiting for a provider response.${reference}` };
     case 'confirming':
-      return {
-        label: 'Confirming',
-        detail: 'Transaction submitted. Waiting for network confirmation.',
-        canRetry: false,
-        needsNewSignature: false,
-      };
+      return { ...base, canCheckStatus: true, label: 'Confirming', detail: `Submitted; waiting for a definitive network status.${reference}` };
     case 'confirmed':
-      return {
-        label: 'Confirmed',
-        detail: op.txHash ? `Confirmed (${op.txHash}).` : 'Confirmed on-chain.',
-        canRetry: false,
-        needsNewSignature: false,
-      };
+      return { ...base, canDismiss: true, label: 'Confirmed', detail: `The status provider reported confirmation.${reference}` };
     case 'failed':
-      return {
-        label: 'Failed',
-        detail: op.error || 'The mutation failed.',
-        canRetry: Boolean(op.retryable),
-        needsNewSignature: Boolean(op.needsNewSignature),
-      };
+      return { ...base, canRetry: Boolean(op.retryable), canDismiss: true,
+        needsNewSignature: Boolean(op.retryable), label: 'Failed',
+        detail: op.error || 'The transaction definitively failed.' };
     case 'unknown':
-      return {
-        label: 'Status unknown',
-        detail:
-          'The provider did not return a definitive outcome. Refresh to reconcile before retrying — a new signature is required if you choose to submit again.',
-        canRetry: true,
-        needsNewSignature: true,
-      };
-    default:
-      return { label: op.state, detail: null, canRetry: false, needsNewSignature: false };
+      return { ...base, canCheckStatus: true, label: 'Status unknown',
+        detail: `The previous submission may have succeeded. Check its status before making another transaction.${reference}` };
   }
 }
 
-/**
- * Map a thrown error / provider outcome into failed vs unknown.
- */
+/** Only a known pre-submit wallet rejection is definitively safe to classify. */
 export function classifyProviderError(err: unknown): {
-  state: 'failed' | 'unknown';
-  retryable: boolean;
-  needsNewSignature: boolean;
-  error: string;
+  state: 'failed' | 'unknown'; retryable: boolean; needsNewSignature: boolean; error: string;
 } {
   const message = err instanceof Error ? err.message : String(err ?? 'Unknown error');
   const lower = message.toLowerCase();
-  const timeout =
-    lower.includes('timeout') ||
-    lower.includes('timed out') ||
-    lower.includes('network') ||
-    lower.includes('failed to fetch');
-  if (timeout) {
-    return {
-      state: 'unknown',
-      retryable: true,
-      needsNewSignature: true,
-      error: message,
-    };
-  }
-  const rejected =
-    lower.includes('reject') ||
-    lower.includes('denied') ||
-    lower.includes('user cancelled') ||
-    lower.includes('user canceled');
-  return {
-    state: 'failed',
-    retryable: !rejected,
-    needsNewSignature: true,
-    error: message,
-  };
+  const rejected = lower.includes('user rejected') || lower.includes('user denied') ||
+    lower.includes('user cancelled') || lower.includes('user canceled');
+  return { state: rejected ? 'failed' : 'unknown', retryable: false,
+    needsNewSignature: false, error: message };
 }

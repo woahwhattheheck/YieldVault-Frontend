@@ -28,12 +28,15 @@ interface DepositFormProps {
 }
 
 export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
-  const { isConnected, balanceOf } = useWallet();
+  const { isConnected, balanceOf, address, walletNetwork } = useWallet();
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-  const { operation, status, busy, run, reset } = useTxLifecycle({
+  const { operation, status, busy, checking, run, checkStatus, reset } = useTxLifecycle({
     kind: 'deposit',
     vaultId: vault.id,
+    walletAddress: address ?? '',
+    network: walletNetwork ?? '',
+    getStatus: walletService.getTransactionStatus,
   });
 
   // After refresh, restore the persisted amount so retry stays available.
@@ -53,13 +56,15 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const submitDeposit = async (value: string) => {
     setMessage(null);
     try {
-      await run(value, async () => {
+      const result = await run(value, async (clientOpId) => {
         await vaultService.deposit(vault.id, Number(value));
-        return walletService.signAndSubmit(`Deposit ${value} ${vault.asset}`);
+        return walletService.signAndSubmit(`Deposit ${value} ${vault.asset}`, { clientOpId });
       });
-      setMessage(`Deposited ${value} ${vault.asset}`);
-      setAmount('');
-      onSuccess?.();
+      if (result?.state === 'confirmed') {
+        setMessage(`Deposited ${value} ${vault.asset}`);
+        setAmount('');
+        onSuccess?.();
+      }
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Deposit failed');
     }
@@ -67,7 +72,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid || busy) return;
+    if (!valid || busy || operation?.state === 'failed') return;
     await submitDeposit(amount);
   };
 
@@ -89,7 +94,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
           min="0"
           step="any"
         />
-        <button type="button" className="max-btn" onClick={handleMax}>
+        <button type="button" className="max-btn" onClick={handleMax} disabled={busy}>
           MAX
         </button>
       </div>
@@ -100,7 +105,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
-      {message && operation?.state === 'confirmed' && (
+      {message && (
         <p className="form-message">{message}</p>
       )}
 
@@ -108,21 +113,23 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
         label={status.label}
         detail={status.detail}
         canRetry={status.canRetry}
+        canCheckStatus={status.canCheckStatus}
+        checking={checking}
         needsNewSignature={status.needsNewSignature}
         state={operation?.state}
         onRetry={
-          status.canRetry
+          status.canRetry && isConnected && valid
             ? () => {
-                const value = amount || operation?.amount;
-                if (value) void submitDeposit(String(value));
+                void submitDeposit(amount);
               }
             : undefined
         }
-        onDismiss={operation ? reset : undefined}
+        onCheckStatus={status.canCheckStatus ? () => { void checkStatus(); } : undefined}
+        onDismiss={status.canDismiss ? reset : undefined}
       />
 
-      <Button type="submit" loading={busy} disabled={!isConnected || !valid || busy}>
-        {isConnected ? (busy ? 'Submitting…' : 'Deposit') : 'Connect wallet to deposit'}
+      <Button type="submit" loading={checking || operation?.state === 'submitted' || operation?.state === 'confirming'} disabled={!isConnected || !valid || busy || operation?.state === 'failed'}>
+        {isConnected ? 'Deposit' : 'Connect wallet to deposit'}
       </Button>
     </form>
   );

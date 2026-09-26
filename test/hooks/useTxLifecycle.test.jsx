@@ -2,72 +2,92 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useTxLifecycle } from '../../src/hooks/useTxLifecycle.js';
 
+const options = (getStatus) => ({
+  kind: 'deposit',
+  vaultId: 'vault-1',
+  walletAddress: 'GOWNER',
+  network: 'testnet',
+  getStatus,
+});
+
 describe('useTxLifecycle', () => {
-  beforeEach(() => {
-    sessionStorage.clear();
-  });
+  beforeEach(() => sessionStorage.clear());
 
-  it('ignores duplicate clicks while a submission is in flight', async () => {
+  it('signs only once for duplicate clicks and waits for status before success', async () => {
     let release;
-    const gate = new Promise((resolve) => {
-      release = resolve;
-    });
-    const submitFn = vi.fn(async () => {
-      await gate;
-      return { hash: 'mock-abc' };
-    });
+    const gate = new Promise((resolve) => { release = resolve; });
+    const submit = vi.fn(async () => { await gate; return { hash: 'h1' }; });
+    const getStatus = vi.fn(async () => ({ status: 'pending', hash: 'h1' }));
+    const { result } = renderHook(() => useTxLifecycle(options(getStatus)));
 
-    const { result } = renderHook(() =>
-      useTxLifecycle({ kind: 'deposit', vaultId: 'vault-1' }),
-    );
-
-    let first;
+    let first, second;
     await act(async () => {
-      first = result.current.run('10', submitFn);
+      first = result.current.run('10', submit);
+      second = result.current.run('10', submit);
     });
-    await waitFor(() => {
-      expect(result.current.operation?.state).toBe('submitted');
-    });
-
-    let second;
-    await act(async () => {
-      second = result.current.run('10', submitFn);
-    });
+    expect(submit).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      release({ hash: 'mock-abc' });
+      release();
       await first;
       await second;
     });
+    expect(result.current.operation.state).toBe('confirming');
+    expect(result.current.status.canRetry).toBe(false);
 
-    expect(submitFn).toHaveBeenCalledTimes(1);
-    expect(result.current.operation?.state).toBe('confirmed');
+    getStatus.mockResolvedValue({ status: 'confirmed', hash: 'h1' });
+    await act(async () => { await result.current.checkStatus(); });
+    expect(result.current.operation.state).toBe('confirmed');
   });
 
-  it('restores in-flight status after remount without resubmitting', async () => {
-    const submitFn = vi.fn(async () => ({ hash: 'h1' }));
-    const { result, unmount } = renderHook(() =>
-      useTxLifecycle({ kind: 'withdraw', vaultId: 'vault-2' }),
-    );
+  it('reconciles a pending receipt on refresh without another signature', async () => {
+    const submit = vi.fn(async () => ({ hash: 'h2' }));
+    const getStatus = vi.fn(async () => ({ status: 'pending', hash: 'h2' }));
+    const first = renderHook(() => useTxLifecycle(options(getStatus)));
+    await act(async () => { await first.result.current.run('5', submit); });
+    expect(first.result.current.operation.state).toBe('confirming');
+    first.unmount();
 
-    // Force a persisted confirming op, then remount.
-    await act(async () => {
-      const pending = result.current.run('5', async () => {
-        throw new Error('Request timed out');
-      });
-      await pending.catch(() => {});
-    });
-    expect(result.current.operation?.state).toBe('unknown');
-    const opId = result.current.operation?.clientOpId;
-    unmount();
+    getStatus.mockResolvedValue({ status: 'confirmed', hash: 'h2' });
+    const again = renderHook(() => useTxLifecycle(options(getStatus)));
+    await waitFor(() => expect(again.result.current.operation?.state).toBe('confirmed'));
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
 
-    const { result: again } = renderHook(() =>
-      useTxLifecycle({ kind: 'withdraw', vaultId: 'vault-2' }),
-    );
-    await waitFor(() => {
-      expect(again.current.operation?.clientOpId).toBe(opId);
-    });
-    expect(submitFn).not.toHaveBeenCalled();
-    expect(again.current.status.needsNewSignature).toBe(true);
+  it('blocks retries after a lost response that may have executed on chain', async () => {
+    const submit = vi.fn(async () => { throw new Error('Request timed out'); });
+    const getStatus = vi.fn(async () => ({ status: 'unknown' }));
+    const first = renderHook(() => useTxLifecycle(options(getStatus)));
+    await act(async () => { await first.result.current.run('25', submit); });
+    expect(first.result.current.operation.state).toBe('unknown');
+    expect(first.result.current.status.canRetry).toBe(false);
+    const id = first.result.current.operation.clientOpId;
+    first.unmount();
+
+    const again = renderHook(() => useTxLifecycle(options(getStatus)));
+    await waitFor(() => expect(again.result.current.operation?.state).toBe('unknown'));
+    await act(async () => { await again.result.current.run('26', submit); });
+    await act(async () => { again.result.current.reset(); });
+    expect(again.result.current.operation.clientOpId).toBe(id);
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    getStatus.mockResolvedValue({ status: 'confirmed', hash: 'h3' });
+    await act(async () => { await again.result.current.checkStatus(); });
+    expect(again.result.current.operation.state).toBe('confirmed');
+  });
+
+  it('allows a new signature only after a definitive failure', async () => {
+    const submit = vi.fn(async () => ({ hash: 'failed-hash' }));
+    const getStatus = vi.fn(async () => ({ status: 'failed', hash: 'failed-hash' }));
+    const { result } = renderHook(() => useTxLifecycle(options(getStatus)));
+    await act(async () => { await result.current.run('7', submit); });
+    const oldId = result.current.operation.clientOpId;
+    expect(result.current.status.canRetry).toBe(true);
+
+    getStatus.mockResolvedValue({ status: 'confirmed', hash: 'new-hash' });
+    await act(async () => { await result.current.run('7', submit); });
+    expect(result.current.operation.state).toBe('confirmed');
+    expect(result.current.operation.clientOpId).not.toBe(oldId);
+    expect(submit).toHaveBeenCalledTimes(2);
   });
 });

@@ -4,8 +4,11 @@ interface TxStatusProps {
   label: string | null;
   detail: string | null;
   canRetry: boolean;
+  canCheckStatus: boolean;
+  checking: boolean;
   needsNewSignature: boolean;
   onRetry?: () => void;
+  onCheckStatus?: () => void;
   onDismiss?: () => void;
   state?: string | null;
 }
@@ -17,8 +20,11 @@ export default function TxStatus({
   label,
   detail,
   canRetry,
+  canCheckStatus,
+  checking,
   needsNewSignature,
   onRetry,
+  onCheckStatus,
   onDismiss,
   state,
 }: TxStatusProps) {
@@ -45,11 +51,15 @@ export default function TxStatus({
       {detail && <p className="tx-status__detail">{detail}</p>}
       {needsNewSignature && canRetry && (
         <p className="tx-status__hint">
-          Retrying requires a new wallet signature. The previous submission will
-          not be duplicated automatically.
+          The previous transaction definitively failed. Retrying requires a new wallet signature.
         </p>
       )}
       <div className="tx-status__actions">
+        {canCheckStatus && onCheckStatus && (
+          <Button type="button" onClick={onCheckStatus} disabled={checking}>
+            {checking ? 'Checking…' : 'Check status'}
+          </Button>
+        )}
         {canRetry && onRetry && (
           <Button type="button" onClick={onRetry}>
             Retry

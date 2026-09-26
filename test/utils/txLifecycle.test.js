@@ -35,17 +35,19 @@ describe('txLifecycle state machine', () => {
     expect(transitionTxState('submitted', 'timeout')).toBe('unknown');
     const classified = classifyProviderError(new Error('Request timed out'));
     expect(classified.state).toBe('unknown');
-    expect(classified.needsNewSignature).toBe(true);
+    expect(classified.needsNewSignature).toBe(false);
     const desc = describeTxStatus({
       clientOpId: 'op_1',
       kind: 'deposit',
       vaultId: 'v1',
       amount: '10',
+      walletAddress: 'GOWNER',
+      network: 'testnet',
       state: 'unknown',
       updatedAt: new Date().toISOString(),
     });
-    expect(desc.canRetry).toBe(true);
-    expect(desc.needsNewSignature).toBe(true);
+    expect(desc.canRetry).toBe(false);
+    expect(desc.canCheckStatus).toBe(true);
   });
 
   it('persists a correlation reference across reads (refresh-safe)', () => {
@@ -55,13 +57,16 @@ describe('txLifecycle state machine', () => {
       kind: 'deposit',
       vaultId: 'vault-usdc',
       amount: '25',
+      walletAddress: 'GOWNER',
+      network: 'testnet',
       state: 'confirming',
       updatedAt: new Date().toISOString(),
     });
     expect(getTxOperation(id)?.state).toBe('confirming');
-    expect(getActiveTxOperation({ kind: 'deposit', vaultId: 'vault-usdc' })?.clientOpId).toBe(
+    expect(getActiveTxOperation({ kind: 'deposit', vaultId: 'vault-usdc', walletAddress: 'GOWNER', network: 'testnet' })?.clientOpId).toBe(
       id,
     );
+    expect(getActiveTxOperation({ kind: 'deposit', vaultId: 'vault-usdc', walletAddress: 'OTHER', network: 'testnet' })).toBeNull();
     clearTxOperation(id);
     expect(getTxOperation(id)).toBeNull();
   });
@@ -85,6 +90,8 @@ describe('txLifecycle state machine', () => {
       kind: 'deposit',
       vaultId: 'v1',
       amount: '1',
+      walletAddress: 'GOWNER',
+      network: 'testnet',
       state: 'failed',
       retryable: false,
       needsNewSignature: true,
@@ -94,9 +101,8 @@ describe('txLifecycle state machine', () => {
     expect(desc.canRetry).toBe(false);
   });
 
-  it('classifies retryable contract failures with a new-signature requirement', () => {
+  it('does not guess that an arbitrary provider error is a definitive failure', () => {
     const classified = classifyProviderError(new Error('Insufficient fee'));
-    expect(classified.state).toBe('failed');
-    expect(classified.retryable).toBe(true);
-    expect(classified.needsNewSignature).toBe(true);
+    expect(classified.state).toBe('unknown');
+    expect(classified.retryable).toBe(false);
   });

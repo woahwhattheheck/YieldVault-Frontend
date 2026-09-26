@@ -4,7 +4,6 @@ import {
   clearTxOperation,
   createClientOpId,
   describeTxStatus,
-  fingerprintMutation,
   getActiveTxOperation,
   getTxOperation,
   saveTxOperation,
@@ -15,141 +14,141 @@ import {
 
 export type { TxOperation, TxStatusDescription };
 
+type StatusResult = { status: 'pending' | 'confirmed' | 'failed' | 'unknown'; hash?: string | null };
 type UseTxLifecycleOptions = {
   kind: 'deposit' | 'withdraw';
   vaultId: string;
+  walletAddress: string;
+  network: string;
+  getStatus: (ref: { clientOpId: string; txHash: string | null }) => Promise<StatusResult>;
 };
-
 type SubmitResult = { hash?: string };
 
 /**
- * Resilient vault mutation lifecycle with refresh-safe correlation.
+ * The submitted record is saved before invoking the wallet. A receipt/hash
+ * advances to confirming, and only an explicit status lookup may confirm.
  */
-export function useTxLifecycle({ kind, vaultId }: UseTxLifecycleOptions) {
+export function useTxLifecycle({
+  kind, vaultId, walletAddress, network, getStatus,
+}: UseTxLifecycleOptions) {
   const [operation, setOperation] = useState<TxOperation | null>(null);
+  const [checking, setChecking] = useState(false);
   const lockRef = useRef(false);
-  const fingerprintRef = useRef<string | null>(null);
-
-  // Restore any in-flight op after refresh without auto-resubmitting.
-  useEffect(() => {
-    const active = getActiveTxOperation({ kind, vaultId });
-    if (active) {
-      setOperation(active);
-      fingerprintRef.current = fingerprintMutation({
-        kind: active.kind,
-        vaultId: active.vaultId,
-        amount: active.amount,
-      });
-    }
-  }, [kind, vaultId]);
+  const scopeRef = useRef('');
+  scopeRef.current = JSON.stringify([kind, vaultId, walletAddress, network]);
 
   const persist = useCallback((next: TxOperation) => {
     saveTxOperation(next);
-    setOperation(next);
+    // An old provider response may arrive after the user switches wallets.
+    if (JSON.stringify([next.kind, next.vaultId, next.walletAddress, next.network]) === scopeRef.current) {
+      setOperation(next);
+    }
+    return next;
   }, []);
 
-  /**
-   * Run a mutation once per intent. Duplicate clicks while submitted/confirming
-   * are no-ops. An unchanged retryable failure reuses the same clientOpId.
-   */
-  const run = useCallback(
-    async (amount: string | number, submitFn: () => Promise<SubmitResult>) => {
-      const fingerprint = fingerprintMutation({ kind, vaultId, amount });
-      const current = operation ? getTxOperation(operation.clientOpId) : null;
+  const reconcileOperation = useCallback(async (op: TxOperation): Promise<TxOperation> => {
+    setChecking(true);
+    let outcome: StatusResult = { status: 'unknown' };
+    try {
+      outcome = await getStatus({ clientOpId: op.clientOpId, txHash: op.txHash ?? null });
+    } catch {
+      // A failed lookup is not evidence that a submitted transaction failed.
+    } finally {
+      setChecking(false);
+    }
+    const latest = getTxOperation(op.clientOpId);
+    if (!latest || latest.state === 'confirmed' || latest.state === 'failed') {
+      return latest ?? op;
+    }
+    const next: TxOperation = {
+      ...latest,
+      txHash: outcome.hash || latest.txHash || null,
+      state: outcome.status === 'confirmed'
+        ? transitionTxState(latest.state, 'confirmed')
+        : outcome.status === 'failed'
+          ? transitionTxState(latest.state, 'failed')
+          : outcome.status === 'pending'
+            ? transitionTxState(latest.state, 'provider_ack')
+            : 'unknown',
+      error: outcome.status === 'failed' ? 'The status provider reported a failed transaction.'
+        : outcome.status === 'confirmed' ? null : latest.error,
+      retryable: outcome.status === 'failed',
+      needsNewSignature: outcome.status === 'failed',
+      updatedAt: new Date().toISOString(),
+    };
+    return persist(next);
+  }, [getStatus, persist]);
 
-      if (
-        current &&
-        (current.state === 'submitted' || current.state === 'confirming')
-      ) {
-        return current;
-      }
+  // Reconcile after a refresh without ever re-signing the old operation.
+  useEffect(() => {
+    const active = getActiveTxOperation({ kind, vaultId, walletAddress, network });
+    setOperation(active);
+    if (active && (active.state === 'submitted' || active.state === 'confirming' ||
+      active.state === 'unknown')) {
+      void reconcileOperation(active);
+    }
+  }, [kind, vaultId, walletAddress, network, reconcileOperation]);
 
-      if (lockRef.current) return current;
+  const run = useCallback(async (
+    amount: string | number,
+    submitFn: (clientOpId: string) => Promise<SubmitResult>,
+  ): Promise<TxOperation | null> => {
+    const current = getActiveTxOperation({ kind, vaultId, walletAddress, network });
+    if (lockRef.current || (current && current.state !== 'failed')) return current;
+    if (current?.state === 'failed' && !current.retryable) return current;
 
-      let clientOpId = current?.clientOpId;
-      const sameIntent = fingerprintRef.current === fingerprint;
-      if (
-        !clientOpId ||
-        !sameIntent ||
-        (current?.state === 'failed' && current?.needsNewSignature) ||
-        current?.state === 'confirmed' ||
-        current?.state === 'unknown'
-      ) {
-        // Unknown / failed-with-new-signature always mint a fresh correlation
-        // so a retry cannot be mistaken for an automatic duplicate of the prior submit.
-        clientOpId = createClientOpId();
-      }
-
-      fingerprintRef.current = fingerprint;
-      lockRef.current = true;
-
-      let next: TxOperation = {
-        clientOpId,
-        kind,
-        vaultId,
-        amount: String(amount),
-        state: transitionTxState('idle', 'submit'),
-        txHash: null,
-        error: null,
-        retryable: false,
-        needsNewSignature: false,
-        updatedAt: new Date().toISOString(),
-      };
+    lockRef.current = true;
+    const next: TxOperation = {
+      clientOpId: createClientOpId(), kind, vaultId, amount: String(amount),
+      walletAddress, network, state: 'submitted', txHash: null, error: null,
+      retryable: false, needsNewSignature: false, updatedAt: new Date().toISOString(),
+    };
+    try {
+      // Failure here occurs before any signing; keep the old record intact.
       persist(next);
-
+      if (current?.state === 'failed') clearTxOperation(current.clientOpId);
       try {
-        const result = await submitFn();
-        next = {
-          ...next,
+        const receipt = await submitFn(next.clientOpId);
+        const acknowledged = persist({
+          ...next, txHash: receipt?.hash ?? null,
           state: transitionTxState(next.state, 'provider_ack'),
-          txHash: result?.hash ?? null,
           updatedAt: new Date().toISOString(),
-        };
-        persist(next);
-        next = {
-          ...next,
-          state: transitionTxState(next.state, 'confirmed'),
-          updatedAt: new Date().toISOString(),
-        };
-        persist(next);
-        return next;
+        });
+        return reconcileOperation(acknowledged);
       } catch (err) {
         const classified = classifyProviderError(err);
-        const event = classified.state === 'unknown' ? 'timeout' : 'failed';
-        next = {
-          ...next,
-          state: transitionTxState(next.state, event),
-          error: classified.error,
+        const stopped = persist({
+          ...next, state: classified.state, error: classified.error,
           retryable: classified.retryable,
           needsNewSignature: classified.needsNewSignature,
           updatedAt: new Date().toISOString(),
-        };
-        persist(next);
-        throw err;
-      } finally {
-        lockRef.current = false;
+        });
+        return stopped.state === 'unknown' ? reconcileOperation(stopped) : stopped;
       }
-    },
-    [kind, vaultId, operation, persist],
-  );
+    } finally {
+      lockRef.current = false;
+    }
+  }, [kind, vaultId, walletAddress, network, persist, reconcileOperation]);
+
+  const checkStatus = useCallback(async () => {
+    const latest = operation && getTxOperation(operation.clientOpId);
+    if (latest && ['submitted', 'confirming', 'unknown'].includes(latest.state)) {
+      return reconcileOperation(latest);
+    }
+    return latest;
+  }, [operation, reconcileOperation]);
 
   const reset = useCallback(() => {
-    if (operation?.clientOpId) clearTxOperation(operation.clientOpId);
-    fingerprintRef.current = null;
+    if (!operation || !['confirmed', 'failed'].includes(operation.state)) return;
+    clearTxOperation(operation.clientOpId);
     setOperation(null);
   }, [operation]);
 
   const status = describeTxStatus(operation);
-  const busy =
-    operation?.state === 'submitted' || operation?.state === 'confirming';
+  const busy = checking || operation?.state === 'submitted' ||
+    operation?.state === 'confirming' || operation?.state === 'unknown';
 
-  return {
-    operation,
-    status,
-    busy,
-    run,
-    reset,
-  };
+  return { operation, status, busy, checking, run, checkStatus, reset };
 }
 
 export default useTxLifecycle;

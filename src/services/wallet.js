@@ -46,11 +46,45 @@ export async function getBalances() {
 }
 
 /**
- * Sign and submit a transaction. Always succeeds in the mock.
+ * Sign and submit a transaction. This mock records a final outcome before
+ * returning the receipt, so callers can reconcile a lost response by op ID.
  * @param {string} summary - human-readable description of the tx
+ * @param {{ clientOpId?: string }} [options]
  * @returns {Promise<{ hash: string, summary: string }>}
  */
-export async function signAndSubmit(summary) {
+export async function signAndSubmit(summary, { clientOpId } = {}) {
+  const entries = readMockTransactions();
+  if (clientOpId && entries[clientOpId]) {
+    return withLatency({ hash: entries[clientOpId].hash, summary });
+  }
   const hash = `mock-${Math.random().toString(16).slice(2, 10)}`;
+  if (clientOpId) {
+    entries[clientOpId] = { hash, status: 'confirmed' };
+    sessionStorage.setItem(MOCK_TX_KEY, JSON.stringify(entries));
+  }
   return withLatency({ hash, summary });
+}
+
+const MOCK_TX_KEY = 'yieldvault.mockTransactions';
+
+function readMockTransactions() {
+  try {
+    return JSON.parse(sessionStorage.getItem(MOCK_TX_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * A mock status source; the real wallet adapter must query chain finality.
+ * Absence of a record is unknown, never evidence of a failed transaction.
+ * @param {{ clientOpId: string, txHash?: string|null }} ref
+ * @returns {Promise<{status: 'pending'|'confirmed'|'failed'|'unknown', hash?: string|null}>}
+ */
+export async function getTransactionStatus({ clientOpId, txHash }) {
+  const record = readMockTransactions()[clientOpId];
+  if (!record || (txHash && record.hash !== txHash)) {
+    return withLatency({ status: 'unknown' });
+  }
+  return withLatency({ status: record.status, hash: record.hash });
 }

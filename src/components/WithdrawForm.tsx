@@ -29,13 +29,16 @@ interface WithdrawFormProps {
 }
 
 export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
-  const { isConnected } = useWallet();
+  const { isConnected, address, walletNetwork } = useWallet();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-  const { operation, status, busy, run, reset } = useTxLifecycle({
+  const { operation, status, busy, checking, run, checkStatus, reset } = useTxLifecycle({
     kind: 'withdraw',
     vaultId: vault.id,
+    walletAddress: address ?? '',
+    network: walletNetwork ?? '',
+    getStatus: walletService.getTransactionStatus,
   });
 
   useEffect(() => {
@@ -59,13 +62,15 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const submitWithdraw = async (value: string) => {
     setMessage(null);
     try {
-      await run(value, async () => {
+      const result = await run(value, async (clientOpId) => {
         await vaultService.withdraw(vault.id, Number(value));
-        return walletService.signAndSubmit(`Withdraw ${value} ${vault.asset}`);
+        return walletService.signAndSubmit(`Withdraw ${value} ${vault.asset}`, { clientOpId });
       });
-      setMessage(`Withdrew ${value} ${vault.asset}`);
-      setAmount('');
-      onSuccess?.();
+      if (result?.state === 'confirmed') {
+        setMessage(`Withdrew ${value} ${vault.asset}`);
+        setAmount('');
+        onSuccess?.();
+      }
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
     }
@@ -73,7 +78,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid || busy) return;
+    if (!valid || busy || operation?.state === 'failed') return;
     await submitWithdraw(amount);
   };
 
@@ -95,7 +100,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
           min="0"
           step="any"
         />
-        <button type="button" className="max-btn" onClick={handleMax}>
+        <button type="button" className="max-btn" onClick={handleMax} disabled={busy}>
           MAX
         </button>
       </div>
@@ -106,7 +111,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       </div>
 
       {touched && error && <p className="field-error">{error}</p>}
-      {message && operation?.state === 'confirmed' && (
+      {message && (
         <p className="form-message">{message}</p>
       )}
 
@@ -114,26 +119,28 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
         label={status.label}
         detail={status.detail}
         canRetry={status.canRetry}
+        canCheckStatus={status.canCheckStatus}
+        checking={checking}
         needsNewSignature={status.needsNewSignature}
         state={operation?.state}
         onRetry={
-          status.canRetry
+          status.canRetry && isConnected && valid
             ? () => {
-                const value = amount || operation?.amount;
-                if (value) void submitWithdraw(String(value));
+                void submitWithdraw(amount);
               }
             : undefined
         }
-        onDismiss={operation ? reset : undefined}
+        onCheckStatus={status.canCheckStatus ? () => { void checkStatus(); } : undefined}
+        onDismiss={status.canDismiss ? reset : undefined}
       />
 
       <Button
         type="submit"
         variant="secondary"
-        loading={busy}
-        disabled={!isConnected || !valid || busy}
+        loading={checking || operation?.state === 'submitted' || operation?.state === 'confirming'}
+        disabled={!isConnected || !valid || busy || operation?.state === 'failed'}
       >
-        {isConnected ? (busy ? 'Submitting…' : 'Withdraw') : 'Connect wallet to withdraw'}
+        {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
       </Button>
     </form>
   );
