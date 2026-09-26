@@ -114,11 +114,11 @@ export function describeTxStatus(op: TxOperation | null): TxStatusDescription {
       return { ...base, canCheckStatus: true, label: 'Submitted', detail: `Waiting for a provider response.${reference}` };
     case 'confirming':
       return { ...base, canCheckStatus: true, label: 'Confirming',
-        detail: op.statusSource === 'mock'
+        detail: op.statusSource !== 'chain'
           ? `Checking the local demo status; no chain finality is available.${reference}`
           : `Submitted; waiting for a definitive network status.${reference}` };
     case 'confirmed':
-      return op.statusSource === 'mock'
+      return op.statusSource !== 'chain'
         ? { ...base, canDismiss: true, label: 'Demo confirmed',
           detail: `The local mock recorded a simulated result. No on-chain confirmation was checked.${reference}` }
         : { ...base, canDismiss: true, label: 'Confirmed',
