@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
 import TxStatus from './TxStatus';
@@ -33,6 +33,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState<string | null>(null);
+  const announcedOpRef = useRef<string | null>(null);
   const { operation, status, busy, checking, run, checkStatus, reset } = useTxLifecycle({
     kind: 'withdraw',
     vaultId: vault.id,
@@ -46,6 +47,18 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
       setAmount(String(operation.amount));
     }
   }, [operation?.amount]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A restored operation can confirm after a refresh, outside submitWithdraw.
+  // Refresh dependent positions once per observed receipt, including restores.
+  useEffect(() => {
+    if (operation?.state !== 'confirmed' || announcedOpRef.current === operation.clientOpId) return;
+    announcedOpRef.current = operation.clientOpId;
+    setMessage(operation.statusSource === 'mock'
+      ? `Demo withdrawal simulated: ${operation.amount} ${vault.asset}; no on-chain confirmation.`
+      : `Withdrew ${operation.amount} ${vault.asset}`);
+    setAmount('');
+    onSuccess?.();
+  }, [operation, onSuccess, vault.asset]);
 
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
@@ -62,16 +75,11 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const submitWithdraw = async (value: string) => {
     setMessage(null);
     try {
-      const result = await run(value, async (clientOpId) => {
+      await run(value, async (clientOpId) => {
         await vaultService.withdraw(vault.id, Number(value));
         return walletService.signAndSubmit(`Withdraw ${value} ${vault.asset}`, { clientOpId });
       });
-      if (result?.state === 'confirmed') {
-        setMessage(`Withdrew ${value} ${vault.asset}`);
-        setAmount('');
-        onSuccess?.();
-      }
-    } catch (err: unknown) {
+     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
     }
   };
