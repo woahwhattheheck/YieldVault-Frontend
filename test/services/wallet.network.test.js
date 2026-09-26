@@ -19,6 +19,13 @@ describe('wallet network guard', () => {
     ).rejects.toMatchObject({ code: 'WRONG_NETWORK' });
   });
 
+  it('rejects a stale matching network snapshot after the wallet switches', async () => {
+    __setWalletNetworkForTests('mainnet');
+    await expect(
+      signAndSubmit('Deposit 1', { expectedNetwork: 'testnet', walletNetwork: 'testnet' }),
+    ).rejects.toMatchObject({ code: 'WRONG_NETWORK' });
+  });
+
   it('allows signAndSubmit when networks match', async () => {
     __setWalletNetworkForTests(CONFIG.network);
     const result = await signAndSubmit('Deposit 1', {
