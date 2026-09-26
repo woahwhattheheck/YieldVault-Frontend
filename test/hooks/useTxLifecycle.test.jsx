@@ -90,4 +90,22 @@ describe('useTxLifecycle', () => {
     expect(result.current.operation.clientOpId).not.toBe(oldId);
     expect(submit).toHaveBeenCalledTimes(2);
   });
+  it('restores a confirmed demo receipt without re-signing after refresh', async () => {
+    const submit = vi.fn(async () => ({ hash: 'mock-hash' }));
+    const getStatus = vi.fn(async () => ({
+      status: 'confirmed', hash: 'mock-hash', source: 'mock',
+    }));
+    const first = renderHook(() => useTxLifecycle(options(getStatus)));
+    await act(async () => { await first.result.current.run('3', submit); });
+    const opId = first.result.current.operation.clientOpId;
+    expect(first.result.current.status.label).toBe('Demo confirmed');
+    first.unmount();
+
+    const again = renderHook(() => useTxLifecycle(options(getStatus)));
+    await waitFor(() => expect(again.result.current.operation?.state).toBe('confirmed'));
+    expect(again.result.current.operation.clientOpId).toBe(opId);
+    expect(again.result.current.status.detail).toMatch(/no on-chain confirmation/i);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
 });
