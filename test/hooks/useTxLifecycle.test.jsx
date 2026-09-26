@@ -38,6 +38,8 @@ describe('useTxLifecycle', () => {
     getStatus.mockResolvedValue({ status: 'confirmed', hash: 'h1' });
     await act(async () => { await result.current.checkStatus(); });
     expect(result.current.operation.state).toBe('confirmed');
+    // Records created before source tagging came from this repository's demo provider.
+    expect(result.current.status.label).toBe('Demo confirmed');
   });
 
   it('reconciles a pending receipt on refresh without another signature', async () => {
