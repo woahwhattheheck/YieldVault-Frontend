@@ -53,7 +53,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   useEffect(() => {
     if (operation?.state !== 'confirmed' || announcedOpRef.current === operation.clientOpId) return;
     announcedOpRef.current = operation.clientOpId;
-    setMessage(operation.statusSource === 'mock'
+    setMessage(operation.statusSource !== 'chain'
       ? `Demo withdrawal simulated: ${operation.amount} ${vault.asset}; no on-chain confirmation.`
       : `Withdrew ${operation.amount} ${vault.asset}`);
     setAmount('');
