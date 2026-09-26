@@ -26,9 +26,26 @@ export function positionQueryKey({ actor = null, network = null, vaultId = null,
 export function createPositionCache() {
   /** @type {Map<string, { generation: number, data: unknown }>} */
   const entries = new Map();
+  const listeners = new Map();
   let globalGeneration = 0;
 
+  function notify(key, event) {
+    for (const listener of listeners.get(key) || []) {
+      listener(event);
+    }
+  }
+
   return {
+    /** Listen for invalidation or refreshed data for one query key. */
+    subscribe(key, listener) {
+      const current = listeners.get(key) || new Set();
+      current.add(listener);
+      listeners.set(key, current);
+      return () => {
+        current.delete(listener);
+        if (current.size === 0) listeners.delete(key);
+      };
+    },
     /**
      * @param {string} key
      * @returns {{ generation: number, data: unknown }|undefined}
@@ -49,6 +66,7 @@ export function createPositionCache() {
         return false;
       }
       entries.set(key, { generation, data });
+      notify(key, { type: 'data', data });
       return true;
     },
 
@@ -62,6 +80,7 @@ export function createPositionCache() {
       globalGeneration += 1;
       const nextGen = globalGeneration;
       entries.set(key, { generation: nextGen, data: undefined });
+      notify(key, { type: 'invalidated' });
       return nextGen;
     },
 
