@@ -5,6 +5,7 @@ import {
   createClientOpId,
   describeTxStatus,
   getActiveTxOperation,
+  getLatestTxOperation,
   getTxOperation,
   saveTxOperation,
   transitionTxState,
@@ -14,7 +15,7 @@ import {
 
 export type { TxOperation, TxStatusDescription };
 
-type StatusResult = { status: 'pending' | 'confirmed' | 'failed' | 'unknown'; hash?: string | null };
+type StatusResult = { status: 'pending' | 'confirmed' | 'failed' | 'unknown'; hash?: string | null; source?: 'mock' | 'chain' };
 type UseTxLifecycleOptions = {
   kind: 'deposit' | 'withdraw';
   vaultId: string;
@@ -63,6 +64,7 @@ export function useTxLifecycle({
     const next: TxOperation = {
       ...latest,
       txHash: outcome.hash || latest.txHash || null,
+      statusSource: outcome.source || latest.statusSource,
       state: outcome.status === 'confirmed'
         ? transitionTxState(latest.state, 'confirmed')
         : outcome.status === 'failed'
@@ -81,11 +83,11 @@ export function useTxLifecycle({
 
   // Reconcile after a refresh without ever re-signing the old operation.
   useEffect(() => {
-    const active = getActiveTxOperation({ kind, vaultId, walletAddress, network });
-    setOperation(active);
-    if (active && (active.state === 'submitted' || active.state === 'confirming' ||
-      active.state === 'unknown')) {
-      void reconcileOperation(active);
+    const latest = getLatestTxOperation({ kind, vaultId, walletAddress, network });
+    setOperation(latest);
+    if (latest && (latest.state === 'submitted' || latest.state === 'confirming' ||
+      latest.state === 'unknown')) {
+      void reconcileOperation(latest);
     }
   }, [kind, vaultId, walletAddress, network, reconcileOperation]);
 
