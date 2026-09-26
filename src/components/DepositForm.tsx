@@ -52,7 +52,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   useEffect(() => {
     if (operation?.state !== 'confirmed' || announcedOpRef.current === operation.clientOpId) return;
     announcedOpRef.current = operation.clientOpId;
-    setMessage(operation.statusSource === 'mock'
+    setMessage(operation.statusSource !== 'chain'
       ? `Demo deposit simulated: ${operation.amount} ${vault.asset}; no on-chain confirmation.`
       : `Deposited ${operation.amount} ${vault.asset}`);
     setAmount('');
