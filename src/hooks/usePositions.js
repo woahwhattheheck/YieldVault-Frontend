@@ -24,6 +24,7 @@ export function usePositions() {
   const { isConnected, address } = useWallet();
   const { network } = useNetwork();
   const [positions, setPositions] = useState([]);
+  const [positionsKey, setPositionsKey] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -43,6 +44,7 @@ export function usePositions() {
   const load = useCallback(async () => {
     if (!isConnected || !address) {
       setPositions([]);
+      setPositionsKey(null);
       setLastUpdated(null);
       return;
     }
@@ -63,6 +65,7 @@ export function usePositions() {
         return;
       }
       setPositions(data);
+      setPositionsKey(queryKey);
       setLastUpdated(new Date());
     } catch (err) {
       if (inFlightGen.current !== generation) {
@@ -80,9 +83,10 @@ export function usePositions() {
   useEffect(() => {
     // Cancel any in-flight request tied to the previous key.
     inFlightGen.current = -1;
+    setPositions([]);
+    setPositionsKey(null);
+    setLastUpdated(null);
     if (!isConnected || !address) {
-      setPositions([]);
-      setLastUpdated(null);
       setLoading(false);
       return undefined;
     }
@@ -93,8 +97,29 @@ export function usePositions() {
     };
   }, [isConnected, address, network, load]);
 
+  // A form invalidates the shared list key after a confirmed mutation.
+  // Every mounted consumer then refreshes, rather than waiting for navigation.
+  useEffect(() => {
+    if (!isConnected || !address) return undefined;
+    return positionCache.subscribe(queryKey, (event) => {
+      if (event.type === 'invalidated') {
+        inFlightGen.current = -1;
+        setPositions([]);
+        setPositionsKey(null);
+        setLastUpdated(null);
+        void load();
+      } else if (event.type === 'data') {
+        setPositions(event.data);
+        setPositionsKey(queryKey);
+        setLastUpdated(new Date());
+        setError(null);
+        setLoading(false);
+      }
+    });
+  }, [isConnected, address, queryKey, load]);
+
   return {
-    positions,
+    positions: positionsKey === queryKey ? positions : [],
     loading,
     error,
     lastUpdated,
