@@ -113,4 +113,27 @@ describe('DepositForm tx lifecycle e2e', () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(screen.queryByText(/deposited 8/i)).not.toBeInTheDocument();
   });
+  it('refreshes dependent views when a pending demo operation confirms after remount', async () => {
+    walletService.signAndSubmit.mockResolvedValue({ hash: 'mock-restored' });
+    walletService.getTransactionStatus.mockResolvedValue({
+      status: 'pending', hash: 'mock-restored', source: 'mock',
+    });
+    const onSuccess = vi.fn();
+    const first = render(<DepositForm vault={vault} onSuccess={onSuccess} />);
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: /deposit/i }));
+    await waitFor(() => expect(screen.getByTestId('tx-status')).toHaveAttribute('data-state', 'confirming'));
+    expect(onSuccess).not.toHaveBeenCalled();
+    first.unmount();
+
+    walletService.getTransactionStatus.mockResolvedValue({
+      status: 'confirmed', hash: 'mock-restored', source: 'mock',
+    });
+    render(<DepositForm vault={vault} onSuccess={onSuccess} />);
+    await waitFor(() => expect(screen.getByText(/demo deposit simulated/i)).toBeInTheDocument());
+    expect(screen.getByText(/no on-chain confirmation/i)).toBeInTheDocument();
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+    expect(walletService.signAndSubmit).toHaveBeenCalledTimes(1);
+  });
+
 });
