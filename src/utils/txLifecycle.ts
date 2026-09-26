@@ -15,6 +15,8 @@ export type TxOperation = {
   network: string;
   state: TxState;
   txHash?: string | null;
+  /** Whether a definitive status came from a real chain source or the local demo. */
+  statusSource?: 'mock' | 'chain';
   error?: string | null;
   retryable?: boolean;
   needsNewSignature?: boolean;
@@ -65,7 +67,17 @@ export function getTxOperation(clientOpId: string): TxOperation | null {
   return readStore()[clientOpId] ?? null;
 }
 
-/** Restore the latest unresolved or failed operation for this wallet and network. */
+/** Restore the last status, including a confirmed receipt, after refresh. */
+export function getLatestTxOperation({ kind, vaultId, walletAddress, network }: {
+  kind: string; vaultId: string; walletAddress: string; network: string;
+}): TxOperation | null {
+  return Object.values(readStore())
+    .filter((op) => op?.kind === kind && op.vaultId === vaultId &&
+      op.walletAddress === walletAddress && op.network === network)
+    .sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt)))[0] ?? null;
+}
+
+/** Only unresolved or failed work blocks another signature. */
 export function getActiveTxOperation({ kind, vaultId, walletAddress, network }: {
   kind: string; vaultId: string; walletAddress: string; network: string;
 }): TxOperation | null {
@@ -101,9 +113,16 @@ export function describeTxStatus(op: TxOperation | null): TxStatusDescription {
     case 'submitted':
       return { ...base, canCheckStatus: true, label: 'Submitted', detail: `Waiting for a provider response.${reference}` };
     case 'confirming':
-      return { ...base, canCheckStatus: true, label: 'Confirming', detail: `Submitted; waiting for a definitive network status.${reference}` };
+      return { ...base, canCheckStatus: true, label: 'Confirming',
+        detail: op.statusSource === 'mock'
+          ? `Checking the local demo status; no chain finality is available.${reference}`
+          : `Submitted; waiting for a definitive network status.${reference}` };
     case 'confirmed':
-      return { ...base, canDismiss: true, label: 'Confirmed', detail: `The status provider reported confirmation.${reference}` };
+      return op.statusSource === 'mock'
+        ? { ...base, canDismiss: true, label: 'Demo confirmed',
+          detail: `The local mock recorded a simulated result. No on-chain confirmation was checked.${reference}` }
+        : { ...base, canDismiss: true, label: 'Confirmed',
+          detail: `The status provider reported confirmation.${reference}` };
     case 'failed':
       return { ...base, canRetry: Boolean(op.retryable), canDismiss: true,
         needsNewSignature: Boolean(op.retryable), label: 'Failed',
