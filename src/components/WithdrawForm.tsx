@@ -30,6 +30,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const { isConnected } = useWallet();
   const { positions } = usePositions();
   const [amount, setAmount] = useState('');
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -42,12 +43,13 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     vault.totalShares,
   );
   const touched = amount !== '';
+  const validationMessage = amountError || (touched ? error : null);
 
   const handleMax = () => setAmount(String(deposited));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || amountError) return;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -76,6 +78,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
           id="withdraw-amount"
           value={amount}
           onChange={setAmount}
+          onValidationError={setAmountError}
           disabled={!isConnected || submitting}
           placeholder="0.00"
           min="0"
@@ -91,14 +94,14 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
         <span>{formatAmount(sharesBurned)} shares</span>
       </div>
 
-      {touched && error && <p className="field-error">{error}</p>}
+      {validationMessage && <p className="field-error">{validationMessage}</p>}
       {message && <p className="form-message">{message}</p>}
 
       <Button
         type="submit"
         variant="secondary"
         loading={submitting}
-        disabled={!isConnected || !valid}
+        disabled={!isConnected || !valid || !!amountError}
       >
         {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
       </Button>

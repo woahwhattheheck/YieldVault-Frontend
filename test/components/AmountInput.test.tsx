@@ -1,7 +1,36 @@
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import React, { useState } from 'react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { vi } from 'vitest';
 import AmountInput from '../../src/components/AmountInput';
+import DepositForm from '../../src/components/DepositForm';
+import WithdrawForm from '../../src/components/WithdrawForm';
+import * as vaultService from '../../src/services/vault.js';
+import * as walletService from '../../src/services/wallet.js';
+
+vi.mock('../../src/hooks/useWallet.js', () => ({
+  useWallet: () => ({ isConnected: true, balanceOf: () => 1000 }),
+}));
+vi.mock('../../src/hooks/usePositions.js', () => ({
+  usePositions: () => ({ positions: [{ vaultId: 'locale-vault', value: 1000 }] }),
+}));
+vi.mock('../../src/services/vault.js', () => ({
+  deposit: vi.fn().mockResolvedValue({}),
+  withdraw: vi.fn().mockResolvedValue({}),
+}));
+vi.mock('../../src/services/wallet.js', () => ({
+  signAndSubmit: vi.fn().mockResolvedValue({}),
+}));
+
+function ControlledAmountInput({ locale, initialValue = '' }: {
+  locale: string;
+  initialValue?: string;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return <>
+    <AmountInput value={value} onChange={setValue} locale={locale} />
+    <output data-testid="canonical-amount">{value}</output>
+  </>;
+}
 
 describe('AmountInput', () => {
   it('renders with default props', () => {
@@ -45,24 +74,32 @@ describe('AmountInput', () => {
     expect(handleChange).toHaveBeenCalledWith('1000');
   });
 
-  it('removes non-numeric characters except decimal point', () => {
+  it('rejects non-numeric text without silently changing the entered amount', () => {
     const handleChange = vi.fn();
-    render(<AmountInput value="" onChange={handleChange} />);
+    const handleError = vi.fn();
+    render(<AmountInput value="" onChange={handleChange} onValidationError={handleError} />);
     
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: 'abc123.45def' } });
     
-    expect(handleChange).toHaveBeenCalledWith('123.45');
+    expect(handleChange).toHaveBeenCalledWith('');
+    expect(input).toHaveValue('abc123.45def');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(handleError).toHaveBeenLastCalledWith('Amount format is invalid');
   });
 
-  it('allows only one decimal point', () => {
+  it('rejects multiple decimal points without merging their digits', () => {
     const handleChange = vi.fn();
-    render(<AmountInput value="" onChange={handleChange} />);
+    const handleError = vi.fn();
+    render(<AmountInput value="" onChange={handleChange} onValidationError={handleError} />);
     
     const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: '123.45.67' } });
     
-    expect(handleChange).toHaveBeenCalledWith('123.4567');
+    expect(handleChange).toHaveBeenCalledWith('');
+    expect(input).toHaveValue('123.45.67');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(handleError).toHaveBeenLastCalledWith('Amount format is invalid');
   });
 
   it('shows raw value on focus', () => {
@@ -104,10 +141,13 @@ describe('AmountInput', () => {
     expect(input).toHaveAttribute('id', 'custom-id');
   });
 
-  it('handles negative numbers', () => {
-    render(<AmountInput value="-1000" onChange={() => {}} />);
+  it('marks an externally supplied negative amount as invalid', () => {
+    const handleError = vi.fn();
+    render(<AmountInput value="-1000" onChange={() => {}} onValidationError={handleError} />);
     const input = screen.getByRole('textbox');
-    expect(input).toHaveValue('-1,000');
+    expect(input).toHaveValue('-1000');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(handleError).toHaveBeenLastCalledWith('Amount cannot be negative');
   });
 
   it('handles zero', () => {
@@ -135,5 +175,93 @@ describe('AmountInput', () => {
     render(<AmountInput value="9007199254740990" onChange={() => {}} />);
     const input = screen.getByRole('textbox');
     expect(input).toHaveValue('9,007,199,254,740,990');
+  });
+
+  it.each(['en-US', 'de-DE', 'fr-FR'])('keeps the amount unchanged when editing an existing decimal in %s', (locale) => {
+    render(<ControlledAmountInput locale={locale} initialValue="12.3" />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: `${input.value}4` } });
+
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('12.34');
+    expect(input).toHaveValue(locale === 'en-US' ? '12.34' : '12,34');
+  });
+
+  it('keeps the locale radix through consecutive controlled keystrokes', () => {
+    render(<ControlledAmountInput locale="de-DE" />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.focus(input);
+    for (const character of '1,23') {
+      fireEvent.change(input, { target: { value: input.value + character } });
+    }
+
+    expect(input).toHaveValue('1,23');
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('1.23');
+  });
+
+  it('keeps a rejected draft visible on blur and accepts its correction', () => {
+    render(<ControlledAmountInput locale="de-DE" initialValue="1" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '1,12345678' } });
+    fireEvent.blur(input);
+
+    expect(input).toHaveValue('1,12345678');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByTestId('canonical-amount')).toBeEmptyDOMElement();
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '1,1234567' } });
+    expect(input).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('1.1234567');
+  });
+
+  it('resynchronizes external values and locale changes while focused', () => {
+    const handleChange = vi.fn();
+    const { rerender } = render(<AmountInput value="12.3" onChange={handleChange} locale="en-US" />);
+    const input = screen.getByRole('textbox') as HTMLInputElement;
+    fireEvent.focus(input);
+    rerender(<AmountInput value="25.67" onChange={handleChange} locale="de-DE" />);
+
+    expect(input).toHaveValue('25,67');
+    fireEvent.change(input, { target: { value: input.value + '8' } });
+    expect(handleChange).toHaveBeenLastCalledWith('25.678');
+  });
+});
+
+describe('amount rejection reaches deposit and withdrawal', () => {
+  const vault = { id: 'locale-vault', asset: 'USDC', totalAssets: 1000, totalShares: 1000 };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    { Form: DepositForm, label: 'Deposit', operation: vaultService.deposit },
+    { Form: WithdrawForm, label: 'Withdraw', operation: vaultService.withdraw },
+  ])('$label cannot submit an earlier valid amount after an invalid edit', async ({ Form, label, operation }) => {
+    render(<Form vault={vault} />);
+    const input = screen.getByRole('textbox');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '10' } });
+    expect(screen.getByRole('button', { name: label })).toBeEnabled();
+
+    fireEvent.change(input, { target: { value: '10x' } });
+    fireEvent.click(screen.getByRole('button', { name: label }));
+
+    expect(operation).not.toHaveBeenCalled();
+    expect(walletService.signAndSubmit).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: label })).toBeDisabled();
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText('Amount format is invalid')).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: '11' } });
+    expect(screen.getByRole('button', { name: label })).toBeEnabled();
+    expect(screen.queryByText('Amount format is invalid')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    await waitFor(() => {
+      expect(operation).toHaveBeenCalledWith('locale-vault', 11);
+      expect(walletService.signAndSubmit).toHaveBeenCalledWith(`${label} 11 USDC`);
+    });
   });
 });

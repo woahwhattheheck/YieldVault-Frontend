@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
+  getLocaleSeparators,
   parseLocaleAmount,
   formatLocaleAmount,
   serializeAmount,
@@ -42,72 +43,83 @@ export default function AmountInput({
 }: AmountInputProps) {
   const [displayValue, setDisplayValue] = useState('');
   const [focused, setFocused] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const pendingEdit = useRef<{
+    value: string;
+    locale: string;
+    maxFractionDigits: number;
+  } | null>(null);
 
   useEffect(() => {
-    if (focused) {
-      setDisplayValue(value);
+    const pending = pendingEdit.current;
+    if (
+      pending?.value === value &&
+      pending.locale === locale &&
+      pending.maxFractionDigits === maxFractionDigits &&
+      (focused || validationError !== null)
+    ) {
+      // A controlled-parent echo must preserve the localized draft, including
+      // a trailing decimal separator or a rejected edit whose canonical value
+      // was cleared. External value/locale changes still resynchronize below.
       return;
     }
+    pendingEdit.current = null;
     if (!value) {
       setDisplayValue('');
+      setValidationError(null);
       return;
     }
     try {
+      const canonical = serializeAmount(value, { locale: 'en-US', maxFractionDigits });
       setDisplayValue(
-        formatLocaleAmount(serializeAmount(value, { locale: 'en-US', maxFractionDigits }), {
-          locale,
-          maxFractionDigits,
-        }),
+        focused
+          ? canonical.replace('.', getLocaleSeparators(locale).decimal)
+          : formatLocaleAmount(canonical, { locale, maxFractionDigits }),
       );
-    } catch {
+      setValidationError(null);
+    } catch (error) {
       setDisplayValue(value);
+      setValidationError(error instanceof Error ? error.message : 'Amount format is invalid');
     }
-  }, [value, locale, maxFractionDigits, focused]);
+  }, [value, locale, maxFractionDigits, focused, validationError]);
+
+  useEffect(() => {
+    onValidationError?.(validationError);
+  }, [onValidationError, validationError]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
     if (inputValue.trim() === '') {
+      pendingEdit.current = { value: '', locale, maxFractionDigits };
       onChange('');
-      onValidationError?.(null);
+      setValidationError(null);
       setDisplayValue('');
       return;
     }
 
     const parsed = parseLocaleAmount(inputValue, { locale, maxFractionDigits });
     if (!parsed.ok) {
-      // Keep the raw keystrokes visible while editing, but do not promote
-      // an invalid value into the serialized amount.
+      // Reject the canonical value too, so callers cannot submit an earlier
+      // valid amount while the field displays a different, invalid draft.
+      pendingEdit.current = { value: '', locale, maxFractionDigits };
+      onChange('');
       setDisplayValue(inputValue);
-      onValidationError?.(parsed.error);
+      setValidationError(parsed.error);
       return;
     }
 
-    onValidationError?.(null);
+    pendingEdit.current = { value: parsed.canonical, locale, maxFractionDigits };
+    setValidationError(null);
     onChange(parsed.canonical);
-    setDisplayValue(focused ? parsed.canonical : formatLocaleAmount(parsed.canonical, { locale, maxFractionDigits }));
+    setDisplayValue(focused ? inputValue : formatLocaleAmount(parsed.canonical, { locale, maxFractionDigits }));
   };
 
   const handleBlur = () => {
     setFocused(false);
-    if (!value) {
-      setDisplayValue('');
-      return;
-    }
-    try {
-      setDisplayValue(
-        formatLocaleAmount(serializeAmount(value, { locale: 'en-US', maxFractionDigits }), {
-          locale,
-          maxFractionDigits,
-        }),
-      );
-    } catch {
-      setDisplayValue(value);
-    }
   };
 
   const handleFocus = () => {
     setFocused(true);
-    setDisplayValue(value);
   };
 
   return (
@@ -124,7 +136,7 @@ export default function AmountInput({
       disabled={disabled}
       className={className}
       inputMode="decimal"
-      aria-invalid={undefined}
+      aria-invalid={validationError ? true : undefined}
     />
   );
 }
