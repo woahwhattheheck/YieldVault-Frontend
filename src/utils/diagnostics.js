@@ -283,7 +283,13 @@ export function assertWellFormedResponse(payload, opts = {}) {
       retryable: false,
     });
   }
-  if (opts.requireKeys && typeof payload === 'object' && !Array.isArray(payload)) {
+  if (opts.requireKeys && opts.requireKeys.length > 0) {
+    if (typeof payload !== 'object' || Array.isArray(payload)) {
+      throw createAppError(`Malformed ${label}: expected an object`, {
+        code: 'MALFORMED_RESPONSE',
+        retryable: false,
+      });
+    }
     const missing = opts.requireKeys.filter(
       (key) => !Object.prototype.hasOwnProperty.call(payload, key),
     );

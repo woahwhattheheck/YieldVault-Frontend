@@ -140,4 +140,61 @@ describe('diagnostics', () => {
     expect(failure.message.length).toBeGreaterThan(0);
     expect(failure.diagnostic.feature).toBe('vault');
   });
+
+  it.each([
+    ['string', 'provider maintenance'],
+    ['number', 42],
+    ['boolean', true],
+    ['array', []],
+  ])('rejects a %s where named response fields are required', (_shape, payload) => {
+    const contracts = [
+      ['vault', ['id', 'name', 'asset']],
+      ['protocol stats', ['totalTvl', 'avgApy', 'vaultCount']],
+      ['apy history', ['vaultId', 'history']],
+    ];
+    for (const [label, requireKeys] of contracts) {
+      let error;
+      try {
+        assertWellFormedResponse(payload, { requireKeys, label });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({
+        name: 'AppError',
+        code: 'MALFORMED_RESPONSE',
+        retryable: false,
+        message: `Malformed ${label}: expected an object`,
+      });
+      expect(captureFailure(error)).toMatchObject({
+        kind: 'invalid_state',
+        retryable: false,
+        message: 'The provider returned data we could not safely use.',
+      });
+    }
+  });
+
+  it('returns objects with their own required fields without copying them', () => {
+    const payload = { id: 'vault-1', name: 'Vault One', asset: 'XLM' };
+    expect(assertWellFormedResponse(payload, {
+      requireKeys: ['id', 'name', 'asset'],
+      label: 'vault',
+    })).toBe(payload);
+  });
+
+  it('still rejects missing and inherited required fields', () => {
+    const payload = { id: 'vault-1', name: 'Vault One', asset: 'XLM' };
+    const options = { requireKeys: ['id', 'name', 'asset'], label: 'vault' };
+    expect(() => assertWellFormedResponse({}, options)).toThrow(/missing/);
+    expect(() => assertWellFormedResponse(Object.create(payload), options)).toThrow(/missing/);
+  });
+
+  it('preserves array-only and unconstrained response validation', () => {
+    const list = [{ id: 'vault-1' }];
+    expect(assertWellFormedResponse(list, { expectArray: true })).toBe(list);
+    expect(() => assertWellFormedResponse('provider maintenance', {
+      expectArray: true,
+    })).toThrow(/expected an array/);
+    expect(assertWellFormedResponse(42)).toBe(42);
+    expect(assertWellFormedResponse(42, { requireKeys: [] })).toBe(42);
+  });
 });
