@@ -114,4 +114,69 @@ describe('usePositions stale-response guard', () => {
       expect(result.current.positions).toEqual([{ vaultId: 'v1', value: 15 }]);
     });
   });
+
+  it('ignores an older consumer failure after another consumer refreshes the shared query', async () => {
+    vi.mocked(useWallet).mockReturnValue({
+      isConnected: true,
+      address: 'GACTOR1',
+    });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    vi.mocked(vaultService.getPositions).mockResolvedValue([
+      { vaultId: 'v1', value: 10 },
+    ]);
+
+    const first = renderHook(() => usePositions());
+    const second = renderHook(() => usePositions());
+    await waitFor(() => {
+      expect(first.result.current.loading).toBe(false);
+      expect(second.result.current.positions).toEqual([{ vaultId: 'v1', value: 10 }]);
+    });
+
+    let rejectOlder;
+    let resolveNewer;
+    const older = new Promise((_, reject) => { rejectOlder = reject; });
+    const newer = new Promise((resolve) => { resolveNewer = resolve; });
+    vi.mocked(vaultService.getPositions)
+      .mockImplementationOnce(() => older)
+      .mockImplementationOnce(() => newer);
+
+    let olderReload;
+    let newerReload;
+    act(() => {
+      olderReload = first.result.current.reload();
+      newerReload = second.result.current.reload();
+    });
+
+    await act(async () => {
+      resolveNewer([{ vaultId: 'v1', value: 20 }]);
+      await newerReload;
+    });
+    expect(first.result.current.positions).toEqual([{ vaultId: 'v1', value: 20 }]);
+    expect(second.result.current.positions).toEqual([{ vaultId: 'v1', value: 20 }]);
+
+    await act(async () => {
+      rejectOlder(new Error('obsolete request failed'));
+      await olderReload;
+    });
+
+    expect(first.result.current.error).toBeNull();
+    expect(second.result.current.error).toBeNull();
+    expect(first.result.current.positions).toEqual([{ vaultId: 'v1', value: 20 }]);
+    expect(second.result.current.positions).toEqual([{ vaultId: 'v1', value: 20 }]);
+  });
+
+  it('still reports a failure from the current shared query request', async () => {
+    vi.mocked(useWallet).mockReturnValue({
+      isConnected: true,
+      address: 'GACTOR1',
+    });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    vi.mocked(vaultService.getPositions).mockRejectedValue(new Error('current request failed'));
+
+    const { result } = renderHook(() => usePositions());
+    await waitFor(() => {
+      expect(result.current.error).toBe('current request failed');
+      expect(result.current.loading).toBe(false);
+    });
+  });
 });

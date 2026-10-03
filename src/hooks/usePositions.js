@@ -72,7 +72,12 @@ export function usePositions() {
       setPositionsKey(queryKey);
       setLastUpdated(new Date());
     } catch (err) {
-      if (inFlightGen.current !== generation) {
+      // Another mounted consumer may have refreshed this shared query even
+      // when this hook's own request generation has not changed.
+      if (
+        inFlightGen.current !== generation ||
+        positionCache.get(queryKey)?.generation !== generation
+      ) {
         return;
       }
       setError(err.message || 'Failed to load positions');
