@@ -9,6 +9,46 @@ import {
 
 describe('localeAmount', () => {
   it.each([
+    [0, 7, '0'],
+    [1.25, 7, '1.25'],
+    [1e-6, 7, '0.000001'],
+    [1e-7, 7, '0.0000001'],
+    [1.25e-7, 9, '0.000000125'],
+    [1e-8, 8, '0.00000001'],
+    [Number.MIN_VALUE, 324, `0.${'0'.repeat(323)}5`],
+    [Number.MAX_SAFE_INTEGER, 7, '9007199254740991'],
+  ])('serializes numeric %s as decimal text at precision %s', (input, maxFractionDigits, canonical) => {
+    for (const locale of ['en-US', 'de-DE', 'fr-FR', 'hi-IN']) {
+      const options = { locale, maxFractionDigits };
+      expect(parseLocaleAmount(input, options)).toEqual({ ok: true, canonical, value: input });
+      expect(serializeAmount(input, options)).toBe(canonical);
+    }
+  });
+
+  it.each([
+    [1e-8, 7],
+    [1.25e-7, 7],
+    [1e-7, 0],
+    [Number.MIN_VALUE, 7],
+  ])('rejects numeric %s beyond precision %s without rounding', (input, maxFractionDigits) => {
+    const error = `Amount supports at most ${maxFractionDigits} decimal places`;
+    expect(parseLocaleAmount(input, { maxFractionDigits })).toEqual({ ok: false, error });
+    expect(() => serializeAmount(input, { maxFractionDigits })).toThrow(error);
+  });
+
+  it.each([
+    [NaN, 'Amount must be a finite number'],
+    [Infinity, 'Amount must be a finite number'],
+    [-Infinity, 'Amount must be a finite number'],
+    [-1e-7, 'Amount cannot be negative'],
+    [Number.MAX_VALUE, 'Amount supports at most 7 decimal places'],
+    [Number.MAX_SAFE_INTEGER + 1, 'Amount is outside the supported numeric range'],
+  ])('preserves numeric rejection for %s', (input, error) => {
+    expect(parseLocaleAmount(input)).toEqual({ ok: false, error });
+    expect(() => serializeAmount(input)).toThrow(error);
+  });
+
+  it.each([
     ['en-US', '1,25'], ['en-US', '1,2,3'], ['en-US', ',123'],
     ['en-US', '123,'], ['en-US', '1,,234'], ['en-US', '1234,567'],
     ['en-US', '1,23,456'], ['en-US', '1.2,5'], ['en-US', '1 234'],

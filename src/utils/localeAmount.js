@@ -44,7 +44,15 @@ export function parseLocaleAmount(input, options = {}) {
     if (input < 0) {
       return { ok: false, error: 'Amount cannot be negative' };
     }
-    const canonical = trimCanonical(String(input));
+    const numeric = String(input);
+    const [coefficient, exponent] = numeric.split('e-');
+    // Expand small values without rounding. Keep large positive exponents on
+    // their existing rejection path.
+    const canonical = trimCanonical(
+      exponent === undefined
+        ? numeric
+        : `0.${'0'.repeat(Number(exponent) - 1)}${coefficient.replace('.', '')}`,
+    );
     return finalizeCanonical(canonical, maxFraction);
   }
 
