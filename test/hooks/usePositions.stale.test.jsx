@@ -179,4 +179,102 @@ describe('usePositions stale-response guard', () => {
       expect(result.current.loading).toBe(false);
     });
   });
+
+  it.each([
+    { change: 'wallet', phase: 'loading' },
+    { change: 'wallet', phase: 'settled' },
+    { change: 'network', phase: 'loading' },
+    { change: 'network', phase: 'settled' },
+  ])('ignores a retired reload after a $change change while the current request is $phase', async ({ change, phase }) => {
+    vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR1' });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    vi.mocked(vaultService.getPositions).mockResolvedValueOnce([
+      { vaultId: 'old-scope', value: 10 },
+    ]);
+    const { result, rerender } = renderHook(() => usePositions());
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'old-scope', value: 10 }]);
+    });
+    const retiredReload = result.current.reload;
+
+    let resolveCurrent;
+    const currentRequest = new Promise((resolve) => { resolveCurrent = resolve; });
+    vi.mocked(vaultService.getPositions).mockImplementationOnce(() => currentRequest);
+    if (change === 'wallet') {
+      vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR2' });
+    } else {
+      vi.mocked(useNetwork).mockReturnValue({ network: 'mainnet' });
+    }
+    rerender();
+    const currentData = [{ vaultId: 'current-scope', value: 20 }];
+    if (phase === 'settled') {
+      await act(async () => { resolveCurrent(currentData); });
+      expect(result.current.positions).toEqual(currentData);
+    } else {
+      expect(result.current.loading).toBe(true);
+    }
+
+    // An async caller may retain the earlier callback even after rerender.
+    // It must not start old-scope work or retire the current request.
+    vi.mocked(vaultService.getPositions).mockResolvedValue([
+      { vaultId: 'obsolete-reload', value: 999 },
+    ]);
+    await act(async () => { await retiredReload(); });
+    if (phase === 'loading') {
+      await act(async () => { resolveCurrent(currentData); });
+    }
+
+    expect(result.current.positions).toEqual(currentData);
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+    expect(positionCache.get(result.current.queryKey)?.data).toEqual(currentData);
+    expect(vaultService.getPositions).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not revive a retired reload when the original actor returns', async () => {
+    vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR1' });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    vi.mocked(vaultService.getPositions)
+      .mockResolvedValueOnce([{ vaultId: 'first-visit', value: 10 }])
+      .mockResolvedValueOnce([{ vaultId: 'other-actor', value: 20 }])
+      .mockResolvedValueOnce([{ vaultId: 'current-visit', value: 30 }]);
+    const { result, rerender } = renderHook(() => usePositions());
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'first-visit', value: 10 }]);
+    });
+    const retiredReload = result.current.reload;
+    vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR2' });
+    rerender();
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'other-actor', value: 20 }]);
+    });
+    vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR1' });
+    rerender();
+    await waitFor(() => {
+      expect(result.current.positions).toEqual([{ vaultId: 'current-visit', value: 30 }]);
+    });
+    vi.mocked(vaultService.getPositions).mockResolvedValue([
+      { vaultId: 'obsolete-reload', value: 999 },
+    ]);
+    await act(async () => { await retiredReload(); });
+    expect(result.current.positions).toEqual([{ vaultId: 'current-visit', value: 30 }]);
+    expect(vaultService.getPositions).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not let a retired reload publish after its consumer unmounts', async () => {
+    vi.mocked(useWallet).mockReturnValue({ isConnected: true, address: 'GACTOR1' });
+    vi.mocked(useNetwork).mockReturnValue({ network: 'testnet' });
+    const currentData = [{ vaultId: 'current', value: 10 }];
+    vi.mocked(vaultService.getPositions).mockResolvedValueOnce(currentData);
+    const { result, unmount } = renderHook(() => usePositions());
+    await waitFor(() => { expect(result.current.positions).toEqual(currentData); });
+    const { reload: retiredReload, queryKey } = result.current;
+    unmount();
+    vi.mocked(vaultService.getPositions).mockResolvedValue([
+      { vaultId: 'obsolete-reload', value: 999 },
+    ]);
+    await act(async () => { await retiredReload(); });
+    expect(positionCache.get(queryKey)?.data).toEqual(currentData);
+    expect(vaultService.getPositions).toHaveBeenCalledTimes(1);
+  });
 });

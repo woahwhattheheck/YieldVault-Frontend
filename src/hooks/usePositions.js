@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import * as vaultService from '../services/vault.js';
 import { useWallet } from './useWallet.js';
 import { useNetwork } from './useNetwork.js';
@@ -38,11 +38,28 @@ export function usePositions() {
   const inFlightGen = useRef(0);
   const pendingAutoReload = useRef(false);
 
+  // A callback belongs to one committed visit to this scope. Comparing only
+  // queryKey would revive an old callback after an A-to-B-to-A transition.
+  const lifecycle = useMemo(() => ({}), [isConnected, address, queryKey]);
+  const activeLifecycle = useRef(null);
+  useLayoutEffect(() => {
+    activeLifecycle.current = lifecycle;
+    return () => {
+      activeLifecycle.current = null;
+      inFlightGen.current = -1;
+      pendingAutoReload.current = false;
+    };
+  }, [lifecycle]);
+
   const invalidate = useCallback(() => {
     positionCache.invalidate(queryKey);
   }, [queryKey]);
 
   const load = useCallback(async () => {
+    // Retired callers must not allocate a generation or consume the current
+    // scope's scheduled refresh, including after this consumer unmounts.
+    if (activeLifecycle.current !== lifecycle) return;
+
     // A caller explicitly reloading right after invalidation supersedes the
     // scheduled automatic refresh, so one mutation causes one request.
     pendingAutoReload.current = false;
@@ -61,7 +78,7 @@ export function usePositions() {
     try {
       const data = await vaultService.getPositions();
       // Drop obsolete responses — a newer fetch or invalidation won the race.
-      if (inFlightGen.current !== generation) {
+      if (activeLifecycle.current !== lifecycle || inFlightGen.current !== generation) {
         return;
       }
       const accepted = positionCache.setIfCurrent(queryKey, data, generation);
@@ -75,6 +92,7 @@ export function usePositions() {
       // Another mounted consumer may have refreshed this shared query even
       // when this hook's own request generation has not changed.
       if (
+        activeLifecycle.current !== lifecycle ||
         inFlightGen.current !== generation ||
         positionCache.get(queryKey)?.generation !== generation
       ) {
@@ -82,11 +100,11 @@ export function usePositions() {
       }
       setError(err.message || 'Failed to load positions');
     } finally {
-      if (inFlightGen.current === generation) {
+      if (activeLifecycle.current === lifecycle && inFlightGen.current === generation) {
         setLoading(false);
       }
     }
-  }, [isConnected, address, queryKey]);
+  }, [isConnected, address, queryKey, lifecycle]);
 
   // Identity / network change: invalidate prior scope and reload.
   useEffect(() => {
@@ -111,6 +129,8 @@ export function usePositions() {
   useEffect(() => {
     if (!isConnected || !address) return undefined;
     return positionCache.subscribe(queryKey, (event) => {
+      // Passive subscription cleanup follows layout lifecycle retirement.
+      if (activeLifecycle.current !== lifecycle) return;
       if (event.type === 'invalidated') {
         inFlightGen.current = -1;
         setPositions([]);
@@ -128,7 +148,7 @@ export function usePositions() {
         setLoading(false);
       }
     });
-  }, [isConnected, address, queryKey, load]);
+  }, [isConnected, address, queryKey, load, lifecycle]);
 
   return {
     positions: positionsKey === queryKey ? positions : [],
