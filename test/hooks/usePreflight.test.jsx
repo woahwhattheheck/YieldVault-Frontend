@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { usePreflight } from '../../src/hooks/usePreflight.js';
 import {
   __resetSimulationBehaviorForTests,
@@ -58,6 +58,32 @@ describe('usePreflight', () => {
   afterEach(() => {
     __resetSimulationBehaviorForTests();
   });
+
+  it.each(['changed payload', 'invalidate', 'reset', 'newer run'])(
+    'returns a stale result to the awaiting caller after %s',
+    async (change) => {
+      const input = {
+        kind: 'deposit', vaultId: 'usdc-vault', amount: '10', asset: 'USDC',
+        walletAddress: 'GTEST', network: 'testnet', expectedNetwork: 'testnet', balance: 100,
+      };
+      const { result, rerender } = renderHook((props) => usePreflight(props), { initialProps: input });
+      let pending;
+      act(() => { pending = result.current.run(); });
+      let replacement;
+      if (change === 'changed payload') rerender({ ...input, amount: '20' });
+      else if (change === 'newer run') act(() => { replacement = result.current.run(); });
+      else act(() => { result.current[change](); });
+
+      let response;
+      await act(async () => {
+        response = await pending;
+        if (replacement) await replacement;
+      });
+      expect(response.status).toBe(PREFLIGHT_STATUS.STALE);
+      if (change === 'newer run') expect(result.current.canSign).toBe(true);
+      else expect(result.current.canSign).toBe(false);
+    },
+  );
 
   it('invalidates on changed payload', async () => {
     render(<Probe amount="10" network="testnet" />);

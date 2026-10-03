@@ -8,7 +8,6 @@ import { usePreflight } from '../hooks/usePreflight.js';
 import { validateDeposit } from '../utils/validate.js';
 import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
-import { shouldRequestSignature } from '../utils/preflight.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
 
@@ -53,6 +52,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
     amount,
     asset: vault.asset,
     walletAddress: address,
+    isConnected,
     network: connectedNetwork,
     expectedNetwork: network,
     balance,
@@ -71,14 +71,21 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
     if (!valid || submitting || preflight.running) return;
     setSubmitting(true);
     setMessage(null);
+    const attempt = preflight.capture();
     try {
       const result = await preflight.run();
-      if (!shouldRequestSignature(result, result.serializedTx ?? '', result.network)) {
+      if (!attempt.canSign(result, result.network)) {
         // Deterministic failure, timeout, or unsupported — never request a signature.
+        if (result.status === 'ok') preflight.invalidate();
         return;
       }
 
       await vaultService.deposit(vault.id, Number(amount));
+      const signingNetwork = await walletService.getNetwork();
+      if (!attempt.canSign(result, signingNetwork)) {
+        preflight.invalidate();
+        return;
+      }
       await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
       setMessage(`Deposited ${amount} ${vault.asset}`);
       setAmount('');

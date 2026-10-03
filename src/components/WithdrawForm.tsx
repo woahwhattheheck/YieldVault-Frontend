@@ -9,7 +9,6 @@ import { usePreflight } from '../hooks/usePreflight.js';
 import { validateWithdraw } from '../utils/validate.js';
 import { previewWithdraw } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
-import { shouldRequestSignature } from '../utils/preflight.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
 
@@ -59,6 +58,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     amount,
     asset: vault.asset,
     walletAddress: address,
+    isConnected,
     network: connectedNetwork,
     expectedNetwork: network,
     position: deposited,
@@ -77,13 +77,20 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     if (!valid || submitting || preflight.running) return;
     setSubmitting(true);
     setMessage(null);
+    const attempt = preflight.capture();
     try {
       const result = await preflight.run();
-      if (!shouldRequestSignature(result, result.serializedTx ?? '', result.network)) {
+      if (!attempt.canSign(result, result.network)) {
+        if (result.status === 'ok') preflight.invalidate();
         return;
       }
 
       await vaultService.withdraw(vault.id, Number(amount));
+      const signingNetwork = await walletService.getNetwork();
+      if (!attempt.canSign(result, signingNetwork)) {
+        preflight.invalidate();
+        return;
+      }
       await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');

@@ -9,8 +9,7 @@ import { formatAmount, formatDate } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
 import { runPreflight } from '../services/preflight.js';
-import { shouldRequestSignature } from '../utils/preflight.js';
-import { CONFIG } from '../constants/config.js';
+import { usePreflightGuard } from '../hooks/usePreflight.js';
 
 /**
  * Multi-step withdraw wizard for a vault. Guides the user through
@@ -28,6 +27,17 @@ export default function WithdrawWizard({ vault, onSuccess }) {
 
   const position = positions.find((p) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
+  const { capture: capturePreflight } = usePreflightGuard({
+    kind: 'withdraw',
+    vaultId: vault.id,
+    asset: vault.asset,
+    walletAddress: address,
+    isConnected,
+    network: walletNetwork ?? network,
+    expectedNetwork: network,
+    position: deposited,
+    vault,
+  });
 
   const validate = (_stepIndex, data) => {
     const errors = {};
@@ -66,25 +76,20 @@ export default function WithdrawWizard({ vault, onSuccess }) {
 
   const handleComplete = async (data) => {
     setSubmitting(true);
+    const attempt = capturePreflight(data.amount);
     try {
-      const preflight = await runPreflight({
-        kind: 'withdraw',
-        vaultId: vault.id,
-        amount: data.amount,
-        asset: vault.asset,
-        walletAddress: address,
-        network: walletNetwork ?? network,
-        expectedNetwork: network,
-        position: deposited,
-        vault,
-        contractId: CONFIG.vaultContract,
-      });
-      if (!shouldRequestSignature(preflight, preflight.serializedTx, preflight.network)) {
-        setReceipt({ error: preflight.reason || 'Preflight failed' });
+      const preflight = await runPreflight(attempt.input);
+      if (!attempt.canSign(preflight, preflight.network)) {
+        setReceipt({ error: preflight.reason || 'Preflight expired. Review and retry before signing.' });
         return;
       }
 
       const result = await vaultService.withdraw(vault.id, Number(data.amount));
+      const signingNetwork = await walletService.getNetwork();
+      if (!attempt.canSign(preflight, signingNetwork)) {
+        setReceipt({ error: 'Preflight expired. Review and retry before signing.' });
+        return;
+      }
       await walletService.signAndSubmit(`Withdraw ${data.amount} ${vault.asset}`);
       // Set receipt first so the success UI renders before the parent
       // re-renders. Use a microtask delay to ensure the state update flushes.
