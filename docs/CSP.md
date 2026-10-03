@@ -77,6 +77,14 @@ Remote `worker-src` hosts are denied.
    allowlist in `DEPENDENCY_POLICY`.
 4. **Warn** on `UNKNOWN` licenses (often stub `package.json` files).
 
+Compound license expressions preserve [SPDX grouping and operator precedence](https://spdx.github.io/spdx-spec/v2.3/SPDX-license-expressions/#d45-order-of-precedence-and-parentheses):
+every `AND` requirement must be allowed, while `OR` offers a choice between
+complete alternatives. For example, `MIT AND LicenseRef-NotApproved` fails,
+but `(MIT AND GPL-3.0) OR Apache-2.0` can use the approved Apache alternative.
+`WITH` exceptions must be allowlisted together with their license. Malformed
+expressions fail even if they contain an allowed license; a standalone
+`UNKNOWN` retains the warning-only treatment above.
+
 Actionable remediation is printed on failure (upgrade/replace package, refresh
 lockfile, or document an allowlist change).
 

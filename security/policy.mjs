@@ -150,37 +150,82 @@ export const DEPENDENCY_POLICY = Object.freeze({
   ]),
 });
 
-/** True when a license string is allowed by policy (supports simple OR expressions). */
+/** True when a license expression has a complete choice allowed by policy. */
 export function isLicenseAllowed(license, policy = DEPENDENCY_POLICY) {
   if (!license || license === 'UNKNOWN') return false;
-  const normalized = String(license).trim();
+  const tokens = String(license).trim().match(/[()]|[^()\s]+/g) || [];
+  const values = [];
+  const operators = [];
+  const precedence = { OR: 1, AND: 2 };
+  let expectLicense = true;
 
-  for (const pattern of policy.disallowedLicensePatterns) {
-    if (pattern.test(normalized) && !/\bOR\b/i.test(normalized)) {
-      return false;
+  const isIdentifier = (token) =>
+    typeof token === 'string' &&
+    /^[A-Za-z0-9.-]+$/.test(token) &&
+    !/^(AND|OR|WITH)$/i.test(token);
+  const isSimpleExpression = (token) => {
+    if (/^(?:DocumentRef-|LicenseRef-)/.test(token || '')) {
+      return /^(?:DocumentRef-[A-Za-z0-9.-]+:)?LicenseRef-[A-Za-z0-9.-]+$/.test(token);
     }
+    return isIdentifier(token?.replace(/\+$/, ''));
+  };
+  const applyOperator = () => {
+    const right = values.pop();
+    const left = values.pop();
+    const operator = operators.pop();
+    values.push(operator === 'AND' ? left && right : left || right);
+  };
+
+  // SPDX groups bind first, then AND, then OR. Evaluate every operand so an
+  // allowed left-hand choice cannot hide a malformed remainder. Explicit stacks
+  // also avoid recursion through dependency-supplied parentheses.
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    const operator = token.toUpperCase();
+
+    if (expectLicense) {
+      if (token === '(') {
+        operators.push(token);
+        continue;
+      }
+      if (!isSimpleExpression(token)) return false;
+
+      let term = token;
+      if (tokens[index + 1]?.toUpperCase() === 'WITH') {
+        const exception = tokens[index + 2];
+        if (!isIdentifier(exception)) return false;
+        term += ` WITH ${exception}`;
+        index += 2;
+      }
+      values.push(
+        policy.allowedLicenses.includes(term) &&
+          !policy.disallowedLicensePatterns.some((pattern) => pattern.test(term)),
+      );
+      expectLicense = false;
+      continue;
+    }
+
+    if (token === ')') {
+      while (operators.length && operators.at(-1) !== '(') applyOperator();
+      if (operators.pop() !== '(') return false;
+      continue;
+    }
+    if (operator !== 'AND' && operator !== 'OR') return false;
+    while (
+      operators.length &&
+      operators.at(-1) !== '(' &&
+      precedence[operators.at(-1)] >= precedence[operator]
+    ) {
+      applyOperator();
+    }
+    operators.push(operator);
+    expectLicense = true;
   }
 
-  if (policy.allowedLicenses.includes(normalized)) return true;
-
-  // SPDX expressions like "(MIT OR Apache-2.0)" — allow if any clause is allowlisted
-  // and no clause matches a hard-disallowed pattern without an OR alternative.
-  const parts = normalized
-    .replace(/[()]/g, '')
-    .split(/\s+(?:OR|AND)\s+/i)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  if (parts.length > 1) {
-    const anyAllowed = parts.some((p) => policy.allowedLicenses.includes(p));
-    const hardDeny = parts.some((p) =>
-      policy.disallowedLicensePatterns.some((re) => re.test(p)),
-    );
-    // Fail closed on AND with a disallowed clause; allow OR when any clause is OK.
-    if (/\bAND\b/i.test(normalized) && hardDeny) return false;
-    if (/\bOR\b/i.test(normalized) && anyAllowed) return true;
-    if (anyAllowed && !hardDeny) return true;
+  if (expectLicense) return false;
+  while (operators.length) {
+    if (operators.at(-1) === '(') return false;
+    applyOperator();
   }
-
-  return false;
+  return values.length === 1 && values[0];
 }
