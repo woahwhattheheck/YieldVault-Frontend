@@ -62,7 +62,11 @@ function validateNode(value, schema, path, errors) {
     addError(errors, path, 'is above the maximum', schema.max, value);
   }
   if (schema.precision !== undefined && typeof value === 'number') {
-    const decimals = String(value).split('.')[1]?.length || 0;
+    // Number strings can use exponent notation: 1e-7 still has seven decimal
+    // places. Count the coefficient's fraction and account for its exponent.
+    const [coefficient, exponent = '0'] = String(value).split('e');
+    const fractionalDigits = coefficient.split('.')[1]?.length || 0;
+    const decimals = Math.max(0, fractionalDigits - Number(exponent));
     if (decimals > schema.precision) {
       addError(errors, path, 'has more decimal places than allowed', schema.precision, decimals);
     }

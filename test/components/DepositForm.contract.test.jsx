@@ -92,4 +92,26 @@ describe('DepositForm contract fixtures', () => {
     });
     expect(screen.getByText(/Deposited 10 USDC \(confirmed\)/i)).toBeInTheDocument();
   });
+
+  it('blocks signing when a response amount exceeds precision in exponent notation', async () => {
+    const invalid = structuredClone(depositSuccess);
+    invalid.tx.amount = 1e-7;
+    __queueDepositResultForTests(invalid);
+    const onSuccess = vi.fn();
+    render(<DepositForm vault={vault} onSuccess={onSuccess} />);
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /^deposit$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('api-error-state')).toHaveAttribute(
+        'data-code',
+        'CONTRACT_VALIDATION_FAILED',
+      );
+    });
+    expect(screen.getByTestId('api-error-state')).toHaveTextContent(/unexpected response/i);
+    expect(screen.getByTestId('api-error-state').textContent).not.toContain('tx.amount');
+    expect(walletService.signAndSubmit).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/amount/i)).toHaveValue('10');
+  });
 });

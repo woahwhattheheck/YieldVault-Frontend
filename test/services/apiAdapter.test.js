@@ -89,9 +89,9 @@ describe('apiAdapter', () => {
     expect(adaptCaughtError(err)).toBe(err.adapted);
   });
 
-  it('rejects over-precision amounts with actionable diagnostics', () => {
+  it.each([10.1234567, 1e-7])('rejects over-precision amount %s with actionable diagnostics', (amount) => {
     const bad = structuredClone(depositSuccess);
-    bad.tx.amount = 10.1234567;
+    bad.tx.amount = amount;
     expect(() => adaptDepositSuccess(bad)).toThrow(/tx\.amount/);
   });
 });

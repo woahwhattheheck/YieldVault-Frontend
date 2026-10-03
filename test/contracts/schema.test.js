@@ -75,6 +75,42 @@ describe('v1 API contracts', () => {
     expect(paths).toContain('$.pagination.limit');
   });
 
+  it.each([1e-7, 1.2e-7, Number.MIN_VALUE])(
+    'rejects excess decimal places when the number uses exponent notation: %s',
+    (amount) => {
+      const invalid = structuredClone(transactionsPage);
+      invalid.transactions[0].amount = amount;
+      const result = check('transactionPage', invalid);
+      expect(result.valid).toBe(false);
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '$.transactions[0].amount',
+            message: 'has more decimal places than allowed',
+            expected: 6,
+          }),
+        ]),
+      );
+    },
+  );
+
+  it.each([0, 0.000001, 0.123456, 1234.56789, 1])(
+    'keeps amounts within the six-decimal boundary valid: %s',
+    (amount) => {
+      const valid = structuredClone(transactionsPage);
+      valid.transactions[0].amount = amount;
+      expect(check('transactionPage', valid).valid).toBe(true);
+    },
+  );
+
+  it('applies the same precision boundary to negative earnings', () => {
+    const invalid = structuredClone(positionList);
+    invalid.positions[0].earnings = -1e-7;
+    const result = check('positionList', invalid);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((error) => error.path === '$.positions[0].earnings')).toBe(true);
+  });
+
   it('rejects undocumented response fields', () => {
     const result = check('transactionPage', { ...transactionsPage, debug: true });
     expect(result.valid).toBe(false);
