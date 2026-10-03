@@ -1,6 +1,9 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Navbar from '../../src/components/Navbar';
+import DepositForm from '../../src/components/DepositForm';
+import { AppProvider } from '../../src/context/AppContext';
+import * as walletService from '../../src/services/wallet.js';
 
 describe('Navbar', () => {
   const STORAGE_KEY = 'yieldvault:nav-collapsed';
@@ -11,6 +14,7 @@ describe('Navbar', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     // Clean up after each test
     localStorage.clear();
   });
@@ -27,6 +31,32 @@ describe('Navbar', () => {
     render(<Navbar />);
     const toggleButton = screen.getByRole('button', { name: /collapse navigation/i });
     expect(toggleButton).toBeInTheDocument();
+  });
+
+  it('shares wallet connection and disconnection with forms in the enclosing app provider', async () => {
+    vi.spyOn(walletService, 'connect').mockResolvedValue({ address: 'GSHAREDWALLET' });
+    vi.spyOn(walletService, 'getBalances').mockResolvedValue({ USDC: 12500, XLM: 48000, EURC: 3200 });
+    vi.spyOn(walletService, 'getNetwork').mockResolvedValue('testnet');
+    vi.spyOn(walletService, 'disconnect').mockResolvedValue(undefined);
+    render(
+      <AppProvider>
+        <Navbar />
+        <DepositForm vault={{ id: 'usdc-vault', asset: 'USDC', totalAssets: 4820000, totalShares: 4600000 }} />
+      </AppProvider>,
+    );
+    const amount = screen.getByRole('textbox', { name: 'Amount' });
+    expect(amount).toBeDisabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Wallet', exact: true }));
+    await screen.findByRole('button', { name: 'Disconnect', exact: true });
+    await waitFor(() => expect(amount).toBeEnabled());
+    expect(screen.getByText('Balance: 12,500.00 USDC')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deposit maximum 12,500.00 USDC' })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect', exact: true }));
+    await waitFor(() => expect(amount).toBeDisabled());
+    expect(screen.getByText('Balance: 0.00 USDC')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Connect wallet to deposit', exact: true })).toBeDisabled();
   });
 
   it('toggles navigation collapse state on button click', () => {

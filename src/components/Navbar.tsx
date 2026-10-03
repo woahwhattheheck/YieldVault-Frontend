@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useContext } from "react";
 import { NavLink, useInRouterContext } from "react-router-dom";
-import { AppProvider } from "../context/AppContext";
+import AppContext, { AppProvider } from "../context/AppContext";
 import WalletButton from "./WalletButton";
 import ThemeToggle from "./ThemeToggle";
 import TimezoneSelector from "./TimezoneSelector";
@@ -13,6 +13,7 @@ const STORAGE_KEY = "yieldvault:nav-collapsed";
 
 export default function Navbar() {
   const inRouter = useInRouterContext();
+  const appContext = useContext(AppContext);
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof localStorage !== "undefined") {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -44,6 +45,14 @@ export default function Navbar() {
         {label}
       </a>
     );
+
+  const walletControls = (
+    <>
+      <ThemeToggle />
+      <TimezoneSelector />
+      <WalletButton />
+    </>
+  );
 
   return (
     <nav className="navbar">
@@ -94,12 +103,9 @@ export default function Navbar() {
         {link("/positions", "Positions")}
         {link("/wizard-demo", "Wizard")}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-        <AppProvider>
-          <ThemeToggle />
-          <TimezoneSelector />
-          <WalletButton />
-        </AppProvider>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "0.75rem", maxWidth: "100%" }}>
+        {/* Share the routed app's wallet state; retain standalone navigation support. */}
+        {appContext ? walletControls : <AppProvider>{walletControls}</AppProvider>}
       </div>
     </nav>
   );

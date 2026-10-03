@@ -25,7 +25,9 @@ export default function VaultDetail() {
   const { vault, loading, error, lastUpdated, reload } = useVault(id);
   const [tab, setTab] = useState('deposit');
 
-  if (loading) return <Loader label="Loading vault…" />;
+  // A refresh must not remove the form's transaction outcome live region.
+  // A newly selected vault still waits for its own data before showing a form.
+  if (loading && (!vault || vault.id !== id)) return <Loader label="Loading vault…" />;
   if (error) return <ErrorMessage message={error} onRetry={reload} />;
   if (!vault) return <ErrorMessage message="Vault not found" />;
 
@@ -65,11 +67,13 @@ export default function VaultDetail() {
 
       <div className="vault-actions">
         <Tabs tabs={TABS} active={tab} onChange={setTab} />
-        {tab === 'deposit' ? (
-          <DepositForm vault={vault} onSuccess={reload} />
-        ) : (
-          <WithdrawForm vault={vault} onSuccess={reload} />
-        )}
+        <fieldset className="vault-action-fields" disabled={loading} aria-busy={loading}>
+          {tab === 'deposit' ? (
+            <DepositForm vault={vault} onSuccess={reload} />
+          ) : (
+            <WithdrawForm vault={vault} onSuccess={reload} />
+          )}
+        </fieldset>
       </div>
     </div>
   );

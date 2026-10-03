@@ -267,6 +267,19 @@
 }
 
 /* Forms */
+.vault-action-fields {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+/* Keep MAX, validation errors and outcome text readable on light form surfaces. */
+:root[data-theme='light'] .vault-form {
+  --accent: #006f60;
+  --loss: #b92c20;
+}
+
 .vault-form {
   display: flex;
   flex-direction: column;
