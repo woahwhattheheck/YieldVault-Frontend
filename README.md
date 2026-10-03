@@ -59,6 +59,18 @@ src/
   wizard's vertical spacing for the shorter viewport
 - **Screen reader support** — route changes are announced to screen readers via an ARIA live region (`RouteAnnouncer` component), providing navigation feedback to users of assistive technologies. All icon-only buttons include descriptive aria-labels for accessibility
 
+## Recovering from page errors
+
+A page render failure leaves the navbar and footer available. Navigating to a
+different pathname, including another vault ID, clears the failed route boundary
+and displays the destination. The existing Try again, Reload page and Go home
+actions remain available where applicable. Query-string and fragment changes
+on the same pathname do not automatically retry a failed page.
+
+The navigation reset applies only to a boundary in an error state. It does not
+remount a healthy page or the shared application provider, and it preserves the
+existing redacted diagnostics and correlation references.
+
 ## Design & Typography System
 
 YieldVault uses a structured, standardized design system powered by CSS variables under `:root` in `src/styles/index.css`.
