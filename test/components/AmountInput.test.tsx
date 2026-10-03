@@ -227,6 +227,27 @@ describe('AmountInput', () => {
     fireEvent.change(input, { target: { value: input.value + '8' } });
     expect(handleChange).toHaveBeenLastCalledWith('25.678');
   });
+
+  it.each([
+    ['en-US', '1,25', '1.25'], ['de-DE', '1.25', '1,25'],
+    ['fr-FR', '1 25', '1,25'], ['en-US', '1.2,5', '1.25'],
+    ['de-DE', '1,2.5', '1,25'], ['fr-FR', '1,2\u202f5', '1,25'],
+  ])('keeps malformed %s grouping visible, clears its canonical value and accepts correction', (locale, invalid, valid) => {
+    render(<ControlledAmountInput locale={locale} initialValue="10" />);
+    const input = screen.getByRole('textbox');
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: invalid } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue(invalid);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByTestId('canonical-amount')).toBeEmptyDOMElement();
+
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: valid } });
+    expect(input).toHaveValue(valid);
+    expect(input).not.toHaveAttribute('aria-invalid');
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('1.25');
+  });
 });
 
 describe('amount rejection reaches deposit and withdrawal', () => {
@@ -234,6 +255,44 @@ describe('amount rejection reaches deposit and withdrawal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([
+    { Form: DepositForm, label: 'Deposit', operation: vaultService.deposit },
+    { Form: WithdrawForm, label: 'Withdraw', operation: vaultService.withdraw },
+  ].flatMap((form) => [
+    { ...form, locale: 'en-US', invalid: '1,25', valid: '1.25' },
+    { ...form, locale: 'de-DE', invalid: '1.25', valid: '1,25' },
+    { ...form, locale: 'fr-FR', invalid: '1 25', valid: '1,25' },
+  ]))('$label blocks malformed $locale grouping until corrected', async ({ Form, label, operation, locale, invalid, valid }) => {
+    const language = vi.spyOn(navigator, 'language', 'get').mockReturnValue(locale);
+    try {
+      render(<Form vault={vault} />);
+      const input = screen.getByRole('textbox');
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: '10' } });
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+      fireEvent.change(input, { target: { value: invalid } });
+      fireEvent.blur(input);
+      expect(input).toHaveValue(invalid);
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Amount format is invalid')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: label })).toBeDisabled();
+      fireEvent.submit(input.closest('form')!);
+      expect(operation).not.toHaveBeenCalled();
+      expect(walletService.signAndSubmit).not.toHaveBeenCalled();
+
+      fireEvent.focus(input);
+      fireEvent.change(input, { target: { value: valid } });
+      expect(screen.getByRole('button', { name: label })).toBeEnabled();
+      fireEvent.click(screen.getByRole('button', { name: label }));
+      await waitFor(() => {
+        expect(operation).toHaveBeenCalledWith('locale-vault', 1.25);
+        expect(walletService.signAndSubmit).toHaveBeenCalledWith(`${label} 1.25 USDC`);
+      });
+    } finally {
+      language.mockRestore();
+    }
   });
 
   it.each([

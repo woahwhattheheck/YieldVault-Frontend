@@ -88,6 +88,14 @@ To quickly apply standardized font properties, the design system exposes utility
 Reusable building blocks live under `src/utils` and `src/hooks`:
 
 - `utils/format.js` — currency, percent, share and address formatting
+- `utils/localeAmount.js` — locale-aware amount parsing and canonical decimal
+  strings for the mock deposit/withdraw forms. Grouped input must use the
+  locale's integer group widths (including Indian grouping); grouping inside
+  fractions, empty/repeated groups and incorrectly sized groups are rejected.
+  Space-grouping locales accept regular, nonbreaking and narrow nonbreaking
+  spaces at valid group boundaries. Ungrouped amounts remain valid. Rejected
+  drafts stay visible, clear the canonical value and block submission until
+  corrected; display formatting remains separate from the submitted value.
 - `utils/positions.js` — portfolio aggregation (`summarizePositions`)
 - `utils/shares.js` — vault share-price and deposit/withdraw math
 - `utils/chartSeries.js` — build chart series from per-vault APY history, and

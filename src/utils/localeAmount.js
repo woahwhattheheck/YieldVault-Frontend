@@ -58,17 +58,34 @@ export function parseLocaleAmount(input, options = {}) {
   }
 
   const { decimal, group } = getLocaleSeparators(locale);
-  // Strip group separators, then normalize the locale decimal to `.`.
-  let normalized = '';
-  for (const ch of trimmed) {
-    if (ch === group) continue;
-    if (ch === decimal) {
-      normalized += '.';
-      continue;
-    }
-    if (ch === ' ' || ch === '\u00a0') continue;
-    normalized += ch;
+  const parts = trimmed.split(decimal);
+  if (parts.length > 2 || (parts.length === 2 && !/^\d+$/.test(parts[1]))) {
+    return { ok: false, error: 'Amount format is invalid' };
   }
+  const sign = parts[0].startsWith('-') ? '-' : '';
+  let integer = sign ? parts[0].slice(1) : parts[0];
+  // Space-grouping locales commonly receive regular/NBSP/narrow-NBSP input
+  // from keyboards and copied text. Accept them only at valid group boundaries.
+  if (/^[ \u00a0\u202f]$/.test(group)) {
+    integer = integer.replace(/[ \u00a0\u202f]/g, group);
+  }
+  const groups = integer.split(group);
+  if (!groups.every((part) => /^\d+$/.test(part))) {
+    return { ok: false, error: 'Amount format is invalid' };
+  }
+  if (groups.length > 1) {
+    // The rightmost and preceding groups may differ (e.g. 12,34,567 in hi-IN).
+    const widths = new Intl.NumberFormat(locale).formatToParts(1234567890123)
+      .filter((part) => part.type === 'integer').map((part) => part.value.length);
+    const primary = widths[widths.length - 1];
+    const secondary = widths[widths.length - 2] ?? primary;
+    if (groups[0].length > secondary || groups[groups.length - 1].length !== primary ||
+        groups.slice(1, -1).some((part) => part.length !== secondary)) {
+      return { ok: false, error: 'Amount format is invalid' };
+    }
+  }
+  // Normalize only after validating the original grouping and fractional part.
+  const normalized = sign + groups.join('') + (parts.length === 2 ? `.${parts[1]}` : '');
 
   // After normalization only ASCII digits, optional leading sign, one `.`.
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) {

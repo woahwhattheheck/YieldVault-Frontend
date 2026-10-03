@@ -8,6 +8,53 @@ import {
 } from '../../src/utils/localeAmount.js';
 
 describe('localeAmount', () => {
+  it.each([
+    ['en-US', '1,25'], ['en-US', '1,2,3'], ['en-US', ',123'],
+    ['en-US', '123,'], ['en-US', '1,,234'], ['en-US', '1234,567'],
+    ['en-US', '1,23,456'], ['en-US', '1.2,5'], ['en-US', '1 234'],
+    ['en-US', '1\u00a0234'], ['de-DE', '1.25'], ['de-DE', '1..234'],
+    ['de-DE', '1,2.5'], ['de-DE', '1234.567'], ['fr-FR', '1 2'],
+    ['fr-FR', '1\u202f23'], ['fr-FR', '1\u00a0\u00a0234'],
+    ['fr-FR', '1,2\u202f5'], ['hi-IN', '123,456'],
+    ['hi-IN', '1,234,567'],
+  ])('rejects malformed grouping in %s: %s', (locale, input) => {
+    expect(parseLocaleAmount(input, { locale })).toEqual({
+      ok: false, error: 'Amount format is invalid',
+    });
+    expect(() => serializeAmount(input, { locale })).toThrow('Amount format is invalid');
+  });
+
+  it.each([
+    ['en-US', '1,234,567.125', '1234567.125'],
+    ['de-DE', '1.234.567,125', '1234567.125'],
+    ['fr-FR', '1\u202f234\u202f567,125', '1234567.125'],
+    ['fr-FR', '1 234 567,125', '1234567.125'],
+    ['fr-FR', '1\u00a0234\u00a0567,125', '1234567.125'],
+    ['hi-IN', '12,34,567.125', '1234567.125'],
+    ['sv-SE', '1\u00a0234,125', '1234.125'],
+    ['de-CH', new Intl.NumberFormat('de-CH').format(1234.125), '1234.125'],
+    ['en-US', '0001234.50', '1234.50'],
+    ['de-DE', '1234,50', '1234.50'],
+    ['en-US', '0.0000001', '0.0000001'],
+    ['de-DE', '0,0000001', '0.0000001'],
+    ['en-US', '  1,234.50  ', '1234.50'],
+    ['en-US', '9,007,199,254,740,991', '9007199254740991'],
+  ])('preserves valid grouping and precision in %s: %s', (locale, input, canonical) => {
+    expect(serializeAmount(input, { locale })).toBe(canonical);
+    expect(parseLocaleAmount(input, { locale })).toEqual({ ok: true, canonical, value: Number(canonical) });
+  });
+
+  it.each(['en-US', 'de-DE', 'fr-FR', 'hi-IN', 'sv-SE', 'de-CH'])('round-trips formatted grouped amounts in %s', (locale) => {
+    for (const canonical of ['0', '12.125', '1234.125', '1234567.125', '123456789.125']) {
+      const display = formatLocaleAmount(canonical, { locale, maxFractionDigits: 7 });
+      expect(serializeAmount(display, { locale })).toBe(canonical);
+    }
+  });
+
+  it.each([['en-US', '-1,234.5'], ['de-DE', '-1.234,5'], ['fr-FR', '-1\u202f234,5']])('keeps the negative-amount rejection in %s', (locale, input) => {
+    expect(parseLocaleAmount(input, { locale })).toEqual({ ok: false, error: 'Amount cannot be negative' });
+  });
+
   it('detects en-US and de-DE separators', () => {
     expect(getLocaleSeparators('en-US')).toEqual({ decimal: '.', group: ',' });
     const de = getLocaleSeparators('de-DE');
