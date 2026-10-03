@@ -72,7 +72,7 @@ export default function FormWizard({
   );
 
   const goNext = useCallback(() => {
-    if (currentStep >= totalSteps - 1) return;
+    if (submitting || currentStep >= totalSteps - 1) return;
 
     const stepErrors = collectErrors(currentStep);
     if (Object.keys(stepErrors).length > 0) {
@@ -88,14 +88,14 @@ export default function FormWizard({
     setErrors({});
     setDirection('forward');
     setCurrentStep((s) => s + 1);
-  }, [currentStep, totalSteps, collectErrors]);
+  }, [currentStep, totalSteps, collectErrors, submitting]);
 
   const goBack = useCallback(() => {
-    if (currentStep <= 0) return;
+    if (submitting || currentStep <= 0) return;
     setDirection('backward');
     setCurrentStep((s) => s - 1);
     setErrors({});
-  }, [currentStep]);
+  }, [currentStep, submitting]);
 
   /** Merge partial data into the wizard-wide state. */
   const updateData = useCallback((partial) => {
@@ -103,7 +103,7 @@ export default function FormWizard({
   }, []);
 
   const handleSubmit = () => {
-    if (currentStep !== totalSteps - 1) return;
+    if (submitting || currentStep !== totalSteps - 1) return;
 
     const stepErrors = collectErrors(currentStep);
     if (Object.keys(stepErrors).length > 0) {
@@ -122,9 +122,12 @@ export default function FormWizard({
 
   /** Advance or submit when Enter is pressed AND no form control is focused. */
   const handleKeyDown = (e) => {
-    if (e.key !== 'Enter' || e.shiftKey) return;
-    const tag = e.target.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    if (
+      submitting || e.defaultPrevented || e.repeat || e.nativeEvent.isComposing ||
+      e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey
+    ) return;
+    // Let native controls, links, and editable descendants handle their keys.
+    if (e.target.closest?.('input, textarea, select, button, a[href], summary, [contenteditable]')) return;
     e.preventDefault();
     if (isLastStep) {
       handleSubmit();
