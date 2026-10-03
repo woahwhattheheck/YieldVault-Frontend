@@ -94,4 +94,35 @@ describe('sessionAuth', () => {
       expect.arrayContaining([SESSION_STORAGE_KEY, POSITIONS_CACHE_KEY, BALANCES_CACHE_KEY]),
     );
   });
+
+  it.each([NaN, Infinity, -Infinity])('expires a session with nonfinite expiry %s', (expiresAt) => {
+    const session = { ...createSession('GABC', 0, 1_000), expiresAt };
+    expect(isSessionExpired(session, 500)).toBe(true);
+    expect(canSubmitVaultMutation(session, 500)).toBe(false);
+    expect(() => assertCanMutate(session, 500)).toThrow(SessionExpiredError);
+    expect(extendSession(session, 500, 1_000)).toBeNull();
+  });
+
+  it.each(['1e999', '-1e999'])('retains persisted expiry %s for expired-session cleanup', (expiresAt) => {
+    localStorage.setItem(
+      SESSION_STORAGE_KEY,
+      `{"address":"GABC","startedAt":0,"expiresAt":${expiresAt},"version":1}`,
+    );
+    cachePositions([{ vaultId: 'v1', value: 42 }]);
+    cacheBalances({ USDC: 99 });
+    writeSafeDraft(DEPOSIT_DRAFT_KEY, '12.5');
+
+    const session = readSession();
+    expect(session).not.toBeNull();
+    expect(isSessionExpired(session, 500)).toBe(true);
+    expect(canSubmitVaultMutation(session, 500)).toBe(false);
+    expect(() => assertCanMutate(session, 500)).toThrow(SessionExpiredError);
+    expect(extendSession(session, 500, 1_000)).toBeNull();
+
+    clearSensitiveClientState({ preserveDrafts: true });
+    expect(readSession()).toBeNull();
+    expect(readCachedPositions()).toBeNull();
+    expect(readCachedBalances()).toBeNull();
+    expect(readSafeDraft(DEPOSIT_DRAFT_KEY)).toBe('12.5');
+  });
 });

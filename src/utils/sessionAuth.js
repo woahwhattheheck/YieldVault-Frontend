@@ -66,7 +66,7 @@ export function createSession(address, now = Date.now(), timeoutMs = CONFIG.sess
  * @param {number} [now=Date.now()]
  */
 export function isSessionExpired(session, now = Date.now()) {
-  if (!session || typeof session.expiresAt !== 'number') return true;
+  if (!session || !Number.isFinite(session.expiresAt)) return true;
   return now >= session.expiresAt;
 }
 
