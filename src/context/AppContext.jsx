@@ -70,8 +70,17 @@ export function AppProvider({ children }) {
 
   const channelRef = useRef(null);
   const applyingRemoteRef = useRef(false);
+  const connectionRef = useRef({ generation: 0, pending: false });
   const sessionRef = useRef(session);
   sessionRef.current = session;
+
+  useEffect(() => {
+    const connection = connectionRef.current;
+    return () => {
+      connection.generation += 1;
+      connection.pending = false;
+    };
+  }, []);
 
   const publishSessionEvent = useCallback((type, nextSession = null) => {
     if (applyingRemoteRef.current) return;
@@ -79,6 +88,9 @@ export function AppProvider({ children }) {
   }, []);
 
   const clearProtectedState = useCallback(() => {
+    connectionRef.current.generation += 1;
+    connectionRef.current.pending = false;
+    setConnecting(false);
     clearSensitiveClientState({ preserveDrafts: true });
     setAddress(null);
     setBalances({});
@@ -103,22 +115,24 @@ export function AppProvider({ children }) {
   const expireSession = useCallback(
     async ({ broadcast = true, reason = 'expiry' } = {}) => {
       // Already cleared — avoid re-entry loops when multiple tabs fire.
-      if (!sessionRef.current && !address) {
+      if (!sessionRef.current && !connectionRef.current.pending) {
         setSessionExpired(true);
         return;
+      }
+      // Revoke local authority before waiting for the wallet to disconnect.
+      // This also invalidates an unfinished connection when no session exists yet.
+      clearProtectedState();
+      setSessionExpired(true);
+      if (broadcast) {
+        publishSessionEvent(reason === 'logout' ? 'logout' : 'expired', null);
       }
       try {
         await walletService.disconnect();
       } catch {
         /* disconnect best-effort */
       }
-      clearProtectedState();
-      setSessionExpired(true);
-      if (broadcast) {
-        publishSessionEvent(reason === 'logout' ? 'logout' : 'expired', null);
-      }
     },
-    [address, clearProtectedState, publishSessionEvent],
+    [clearProtectedState, publishSessionEvent],
   );
 
   const setNetwork = useCallback((next) => {
@@ -145,21 +159,32 @@ export function AppProvider({ children }) {
   }, []);
 
   const connect = useCallback(async () => {
+    const generation = connectionRef.current.generation + 1;
+    connectionRef.current.generation = generation;
+    connectionRef.current.pending = true;
+    const isCurrent = () => connectionRef.current.generation === generation;
     setConnecting(true);
     setError(null);
     try {
       const { address: addr } = await walletService.connect();
+      if (!isCurrent()) return null;
       const bal = await walletService.getBalances();
+      if (!isCurrent()) return null;
       const detected = await walletService.getNetwork();
+      if (!isCurrent()) return null;
       const nextSession = createSession(addr);
       applyAuthenticatedSession(nextSession, addr, bal, detected);
       publishSessionEvent('authenticated', nextSession);
       return nextSession;
     } catch (err) {
+      if (!isCurrent()) return null;
       setError(err.message || 'Failed to connect wallet');
       throw err;
     } finally {
-      setConnecting(false);
+      if (isCurrent()) {
+        connectionRef.current.pending = false;
+        setConnecting(false);
+      }
     }
   }, [applyAuthenticatedSession, publishSessionEvent]);
 

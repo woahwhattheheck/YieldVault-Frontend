@@ -404,4 +404,267 @@ describe('session timeout integration', () => {
     expect(result.current.mutationsAllowed).toBe(false);
   });
 
+  describe('connection and logout races', () => {
+    function resetWalletMocks() {
+      vi.mocked(walletService.connect).mockReset().mockResolvedValue({ address: 'GTESTADDRESS' });
+      vi.mocked(walletService.disconnect).mockReset().mockResolvedValue(undefined);
+      vi.mocked(walletService.getBalances).mockReset().mockResolvedValue({ USDC: 250 });
+      vi.mocked(walletService.getNetwork).mockReset().mockResolvedValue('testnet');
+    }
+
+    beforeEach(resetWalletMocks);
+    afterEach(resetWalletMocks);
+
+    const stages = [
+      ['connect', { address: 'GTESTADDRESS' }],
+      ['getBalances', { USDC: 250 }],
+      ['getNetwork', 'testnet'],
+    ];
+
+    function expectProtectedStateCleared(result) {
+      expect(result.current.address).toBeNull();
+      expect(result.current.session).toBeNull();
+      expect(result.current.balances).toEqual({});
+      expect(result.current.walletNetwork).toBeNull();
+      expect(result.current.isConnected).toBe(false);
+      expect(result.current.mutationsAllowed).toBe(false);
+      expect(result.current.sessionExpired).toBe(true);
+      expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(POSITIONS_CACHE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(BALANCES_CACHE_KEY)).toBeNull();
+    }
+
+    function expectNewConnection(result) {
+      expect(result.current.address).toBe('GNEWADDRESS');
+      expect(result.current.session?.address).toBe('GNEWADDRESS');
+      expect(result.current.balances).toEqual({ USDC: 375 });
+      expect(result.current.walletNetwork).toBe('mainnet');
+      expect(result.current.isConnected).toBe(true);
+      expect(result.current.mutationsAllowed).toBe(true);
+      expect(result.current.sessionExpired).toBe(false);
+      expect(result.current.connecting).toBe(false);
+      expect(result.current.error).toBeNull();
+      expect(JSON.parse(localStorage.getItem(SESSION_STORAGE_KEY))).toEqual(result.current.session);
+      expect(JSON.parse(sessionStorage.getItem(BALANCES_CACHE_KEY))).toEqual({ USDC: 375 });
+    }
+
+    // Observe both outcomes immediately so the original failing implementation
+    // can be compared without leaking an unhandled rejection into another case.
+    function observe(promise) {
+      return promise.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+    }
+
+    it.each(['success', 'failure'])(
+      'revokes authorization and clears caches before wallet disconnect %s settles',
+      async (outcome) => {
+        const pending = deferred();
+        const { result } = renderHook(() => useAppContext(), { wrapper });
+        await act(async () => {
+          await result.current.connect();
+        });
+        cachePositions([{ vaultId: 'v1', value: 9 }]);
+        writeSafeDraft(DEPOSIT_DRAFT_KEY, '42');
+        vi.mocked(walletService.disconnect).mockReturnValueOnce(pending.promise);
+        expect(result.current.mutationsAllowed).toBe(true);
+        expect(sessionStorage.getItem(BALANCES_CACHE_KEY)).not.toBeNull();
+        expect(sessionStorage.getItem(POSITIONS_CACHE_KEY)).not.toBeNull();
+
+        let logout;
+        act(() => {
+          logout = result.current.disconnect();
+        });
+
+        expect(walletService.disconnect).toHaveBeenCalledTimes(1);
+        expectProtectedStateCleared(result);
+        await act(async () => {
+          expect(await result.current.ensureSessionActive()).toBeNull();
+        });
+        expect(readSafeDraft(DEPOSIT_DRAFT_KEY)).toBe('42');
+
+        await act(async () => {
+          if (outcome === 'failure') pending.reject(new Error('Provider disconnect failed'));
+          else pending.resolve();
+          await logout;
+        });
+
+        expectProtectedStateCleared(result);
+        expect(result.current.connecting).toBe(false);
+        expect(readSafeDraft(DEPOSIT_DRAFT_KEY)).toBe('42');
+      },
+    );
+
+    describe.each(['local logout', 'another tab logout'])('%s during connection', (reason) => {
+      it.each(stages)(
+        'discards a held %s response without restoring protected state',
+        async (stage, value) => {
+          const pending = deferred();
+          vi.mocked(walletService[stage]).mockReturnValueOnce(pending.promise);
+          const { result } = renderHook(() => useAppContext(), { wrapper });
+          let connection;
+          await act(async () => {
+            connection = observe(result.current.connect());
+          });
+          expect(walletService[stage]).toHaveBeenCalledTimes(1);
+          expect(result.current.connecting).toBe(true);
+
+          await act(async () => {
+            if (reason === 'local logout') await result.current.disconnect();
+            else {
+              localStorage.removeItem(SESSION_STORAGE_KEY);
+              window.dispatchEvent(
+                new StorageEvent('storage', {
+                  key: SESSION_STORAGE_KEY,
+                  newValue: null,
+                }),
+              );
+            }
+          });
+
+          expectProtectedStateCleared(result);
+          expect(result.current.connecting).toBe(false);
+          await act(async () => {
+            pending.resolve(value);
+            expect(await connection).toEqual({ value: null });
+          });
+
+          expectProtectedStateCleared(result);
+          expect(result.current.error).toBeNull();
+          expect(result.current.connecting).toBe(false);
+          // Cancelling before a protected read starts must not issue that read.
+          expect(walletService.getBalances).toHaveBeenCalledTimes(stage === 'connect' ? 0 : 1);
+          expect(walletService.getNetwork).toHaveBeenCalledTimes(stage === 'getNetwork' ? 1 : 0);
+        },
+      );
+    });
+
+    describe.each(['pending', 'complete'])('newer reauthentication is %s', (newerState) => {
+      it.each(['success', 'failure'])('ignores the obsolete connection %s', async (outcome) => {
+        const old = deferred();
+        const current = deferred();
+        vi.mocked(walletService.connect)
+          .mockReturnValueOnce(old.promise)
+          .mockReturnValueOnce(current.promise);
+        vi.mocked(walletService.getBalances).mockResolvedValue({ USDC: 375 });
+        vi.mocked(walletService.getNetwork).mockResolvedValue('mainnet');
+        const { result } = renderHook(() => useAppContext(), { wrapper });
+        let oldConnection;
+        let newConnection;
+        await act(async () => {
+          oldConnection = observe(result.current.connect());
+        });
+        await act(async () => {
+          newConnection = result.current.reauthenticate();
+        });
+
+        if (newerState === 'complete') {
+          await act(async () => {
+            current.resolve({ address: 'GNEWADDRESS' });
+            await newConnection;
+          });
+          expectNewConnection(result);
+        }
+        const currentSession = localStorage.getItem(SESSION_STORAGE_KEY);
+        await act(async () => {
+          if (outcome === 'failure') old.reject(new Error('Old wallet request failed'));
+          else old.resolve({ address: 'GOLDADDRESS' });
+          expect(await oldConnection).toEqual({ value: null });
+        });
+
+        expect(result.current.error).toBeNull();
+        expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBe(currentSession);
+        if (newerState === 'pending') {
+          expect(result.current.connecting).toBe(true);
+          expect(result.current.address).toBeNull();
+          expect(result.current.session).toBeNull();
+          expect(result.current.balances).toEqual({});
+          expect(result.current.mutationsAllowed).toBe(false);
+          expect(sessionStorage.getItem(BALANCES_CACHE_KEY)).toBeNull();
+          await act(async () => {
+            current.resolve({ address: 'GNEWADDRESS' });
+            await newConnection;
+          });
+        }
+        expectNewConnection(result);
+      });
+    });
+
+    it('still reports and rejects a current connection failure', async () => {
+      const failure = new Error('Current balances unavailable');
+      vi.mocked(walletService.getBalances).mockRejectedValueOnce(failure);
+      const { result } = renderHook(() => useAppContext(), { wrapper });
+
+      await act(async () => {
+        await expect(result.current.connect()).rejects.toBe(failure);
+      });
+
+      expect(result.current.error).toBe(failure.message);
+      expect(result.current.connecting).toBe(false);
+      expect(result.current.session).toBeNull();
+      expect(result.current.mutationsAllowed).toBe(false);
+      expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(BALANCES_CACHE_KEY)).toBeNull();
+      expect(walletService.getNetwork).not.toHaveBeenCalled();
+    });
+
+    it.each(['success', 'failure'])(
+      'keeps a new authenticated session when an earlier disconnect finishes with %s',
+      async (outcome) => {
+        const pending = deferred();
+        const { result } = renderHook(() => useAppContext(), { wrapper });
+        await act(async () => {
+          await result.current.connect();
+        });
+        vi.mocked(walletService.disconnect).mockReturnValueOnce(pending.promise);
+        let logout;
+        act(() => {
+          logout = result.current.disconnect();
+        });
+
+        vi.mocked(walletService.connect).mockResolvedValueOnce({ address: 'GNEWADDRESS' });
+        vi.mocked(walletService.getBalances).mockResolvedValueOnce({ USDC: 375 });
+        vi.mocked(walletService.getNetwork).mockResolvedValueOnce('mainnet');
+        await act(async () => {
+          await result.current.reauthenticate();
+        });
+        expectNewConnection(result);
+        const currentSession = localStorage.getItem(SESSION_STORAGE_KEY);
+
+        await act(async () => {
+          if (outcome === 'failure') pending.reject(new Error('Old disconnect failed'));
+          else pending.resolve();
+          await logout;
+        });
+
+        expectNewConnection(result);
+        expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBe(currentSession);
+      },
+    );
+
+    it.each(stages)('does not persist a connection after unmount during %s', async (stage, value) => {
+      const pending = deferred();
+      vi.mocked(walletService[stage]).mockReturnValueOnce(pending.promise);
+      const { result, unmount } = renderHook(() => useAppContext(), { wrapper });
+      let connection;
+      await act(async () => {
+        connection = observe(result.current.connect());
+      });
+      expect(walletService[stage]).toHaveBeenCalledTimes(1);
+      unmount();
+
+      await act(async () => {
+        pending.resolve(value);
+        expect(await connection).toEqual({ value: null });
+      });
+
+      expect(localStorage.getItem(SESSION_STORAGE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(BALANCES_CACHE_KEY)).toBeNull();
+      expect(sessionStorage.getItem(POSITIONS_CACHE_KEY)).toBeNull();
+      expect(walletService.getBalances).toHaveBeenCalledTimes(stage === 'connect' ? 0 : 1);
+      expect(walletService.getNetwork).toHaveBeenCalledTimes(stage === 'getNetwork' ? 1 : 0);
+    });
+  });
+
 });

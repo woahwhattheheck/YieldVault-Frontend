@@ -98,6 +98,73 @@ Reusable building blocks live under `src/utils` and `src/hooks`:
 - `hooks/useClipboard` — copy text with transient "copied" feedback
 - `hooks/useDocumentTitle` — set the browser tab title per page
 
+## Session authorization and connection lifecycle
+
+The client session layer expires sensitive wallet state while preserving safe
+preferences and amount drafts. Deposit and withdrawal flows check the session
+before a mutation and again before signing. The positions hook discards responses
+from expired or replaced sessions, including same-wallet re-authentication.
+
+Logout clears local session, address, balances, and protected caches immediately,
+before awaiting the mock wallet's disconnect. It also invalidates an unfinished
+connection. Local expiry, another tab's logout, re-authentication, and
+`AppProvider` unmount prevent an older connection from restoring state or starting a later
+balance/network read. An earlier disconnect's completion cannot clear a newer
+authenticated session.
+
+A current successful `connect()` still returns its session; a current failure
+still rejects with its original error. Superseded or cancelled connection attempts
+resolve to `null` without changing the current session, error, loading state, or
+cache. Callers needing a session should check that result before continuing.
+There are no API, contract, storage-format, or migration changes. This application
+continues to use its existing mock wallet and vault services; client session
+handling does not establish real-wallet or server-side authorization.
+
+### Connection/logout continuation verification
+
+The maintained selection is:
+
+```bash
+npm test -- \
+  test/integration/sessionTimeout.test.jsx \
+  test/utils/sessionAuth.test.js \
+  test/components/DepositForm.session.test.jsx \
+  --maxWorkers=1
+```
+
+The continuation adds 18 integration cases: held disconnect success/failure,
+local and remote logout at each connection await, obsolete success/failure during
+replacement authentication, a current-error control, late disconnect completion,
+and unmount cleanup. All 17 prior integration cases, including the positions
+repair, remain unchanged. The three-file selection passes **43/43** with the
+retained runtime described below. Substituting the exact preceding `AppContext`
+from `ddbd7e59ad5cd72f3570760e33efe9935800528c` while retaining the final tests
+produces **17 failures / 26 passes**; every failure is in the new lifecycle cases.
+
+Actual Chromium **153.0.8010.0** runs the mounted `AppProvider`, session utilities,
+network/configuration modules, and unchanged mock wallet/API/data services.
+An isolated parent supplies action buttons and observations. The before/after
+runs each make six local page/bundle GETs, with no page errors, console errors,
+or external requests. A real second same-origin tab sends the logout through
+native BroadcastChannel/storage events.
+
+| Observed case | Preceding source | Corrected source |
+| --- | --- | --- |
+| Mutation gate immediately after logout starts | Authorizes; session and balance cache remain during disconnect | Refuses; protected cache is already cleared |
+| Pending connection settles after another tab logs out | Restores session/balances and authorizes again | Remains expired with no protected cache or authorization |
+| Ordinary connect and completed logout | Connect authorizes, completed logout clears state | Both controls remain correct |
+
+Local tests used Node **24.19.0**, Vitest **4.1.10**, Vite **8.3.2**, jsdom
+**29.0.2**, React/DOM **18.3.1**, Testing Library React **16.3.2**, and jest-dom
+**6.9.1**. The unchanged repository command exits before tests because the
+retained dependencies lack `@vitejs/plugin-react`. A temporary configuration
+preserves the repository's jsdom environment, globals, setup file, and exclusions,
+and uses Vite's built-in automatic JSX transform. The Vite/jsdom versions differ
+from the declared ^5.1.0 / ^29.1.1 ranges. No dependency or lockfile change was
+made. These are focused maintained-test and native mock-client observations;
+the full configured suite, TypeScript/application build, real wallet extension,
+and deployed provider behavior were not exercised for this continuation.
+
 ## Scripts
 
 | Command           | Description              |
