@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useTxLifecycle } from '../../src/hooks/useTxLifecycle.js';
+import { getTxOperation } from '../../src/utils/txLifecycle.js';
 
 const options = (getStatus) => ({
   kind: 'deposit',
@@ -108,6 +109,76 @@ describe('useTxLifecycle', () => {
     expect(again.result.current.operation.clientOpId).toBe(opId);
     expect(again.result.current.status.detail).toMatch(/no on-chain confirmation/i);
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['confirmed', 'receipt'],
+    ['confirmed', 'error'],
+    ['failed', 'receipt'],
+    ['failed', 'error'],
+  ])('preserves a %s status after a late submission %s', async (state, outcome) => {
+    let resolveSubmit, rejectSubmit;
+    const submission = new Promise((resolve, reject) => {
+      resolveSubmit = resolve;
+      rejectSubmit = reject;
+    });
+    const submit = vi.fn(() => submission);
+    const getStatus = vi.fn(async () => ({ status: state, hash: 'status-hash', source: 'mock' }));
+    const { result } = renderHook(() => useTxLifecycle(options(getStatus)));
+    let pending;
+    await act(async () => { pending = result.current.run('10', submit); });
+    expect(result.current.operation.state).toBe('submitted');
+    const id = result.current.operation.clientOpId;
+
+    await act(async () => { await result.current.checkStatus(); });
+    const settled = getTxOperation(id);
+    expect(settled.state).toBe(state);
+    getStatus.mockResolvedValue({ status: 'unknown', source: 'mock' });
+
+    let completed;
+    await act(async () => {
+      if (outcome === 'receipt') resolveSubmit({ hash: 'late-hash' });
+      else rejectSubmit(new Error('Request timed out'));
+      completed = await pending;
+    });
+
+    expect(getTxOperation(id)).toEqual(settled);
+    expect(result.current.operation.state).toBe(state);
+    expect(result.current.operation.txHash).toBe('status-hash');
+    expect(result.current.operation.statusSource).toBe('mock');
+    expect(completed).toEqual(settled);
+    expect(getStatus).toHaveBeenCalledTimes(1);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['receipt', 'error'])('keeps a dismissed operation cleared after a late submission %s', async (outcome) => {
+    let resolveSubmit, rejectSubmit;
+    const submission = new Promise((resolve, reject) => {
+      resolveSubmit = resolve;
+      rejectSubmit = reject;
+    });
+    const getStatus = vi.fn(async () => ({ status: 'confirmed', hash: 'status-hash', source: 'mock' }));
+    const { result } = renderHook(() => useTxLifecycle(options(getStatus)));
+    let pending;
+    await act(async () => { pending = result.current.run('10', () => submission); });
+    const id = result.current.operation.clientOpId;
+    await act(async () => { await result.current.checkStatus(); });
+    expect(result.current.operation.state).toBe('confirmed');
+    await act(async () => { result.current.reset(); });
+    expect(getTxOperation(id)).toBeNull();
+    expect(result.current.operation).toBeNull();
+
+    let completed;
+    await act(async () => {
+      if (outcome === 'receipt') resolveSubmit({ hash: 'late-hash' });
+      else rejectSubmit(new Error('Request timed out'));
+      completed = await pending;
+    });
+
+    expect(getTxOperation(id)).toBeNull();
+    expect(result.current.operation).toBeNull();
+    expect(completed).toBeNull();
+    expect(getStatus).toHaveBeenCalledTimes(1);
   });
 
 });

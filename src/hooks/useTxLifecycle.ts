@@ -111,16 +111,21 @@ export function useTxLifecycle({
       if (current?.state === 'failed') clearTxOperation(current.clientOpId);
       try {
         const receipt = await submitFn(next.clientOpId);
+        // A status check or dismissal may have completed while the wallet was pending.
+        const latest = getTxOperation(next.clientOpId);
+        if (!latest || latest.state === 'confirmed' || latest.state === 'failed') return latest;
         const acknowledged = persist({
-          ...next, txHash: receipt?.hash ?? null,
-          state: transitionTxState(next.state, 'provider_ack'),
+          ...latest, txHash: receipt?.hash ?? latest.txHash ?? null,
+          state: transitionTxState(latest.state, 'provider_ack'),
           updatedAt: new Date().toISOString(),
         });
         return reconcileOperation(acknowledged);
       } catch (err) {
+        const latest = getTxOperation(next.clientOpId);
+        if (!latest || latest.state === 'confirmed' || latest.state === 'failed') return latest;
         const classified = classifyProviderError(err);
         const stopped = persist({
-          ...next, state: classified.state, error: classified.error,
+          ...latest, state: classified.state, error: classified.error,
           retryable: classified.retryable,
           needsNewSignature: classified.needsNewSignature,
           updatedAt: new Date().toISOString(),
