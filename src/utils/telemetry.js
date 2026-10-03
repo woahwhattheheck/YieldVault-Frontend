@@ -16,6 +16,13 @@ const buffer = [];
 
 const MAX_BUFFER = 100;
 
+/** @param {unknown} value @param {string} fallback */
+function safeMetadata(value, fallback) {
+  return typeof value === 'string' && !containsSensitiveValue(value)
+    ? value
+    : fallback;
+}
+
 /**
  * @returns {Array<Record<string, unknown>>}
  */
@@ -44,11 +51,9 @@ export function reportDiagnostic(diagnostic) {
 
   if (containsSensitiveValue(safe)) {
     const stub = {
-      correlationId: typeof diagnostic.correlationId === 'string'
-        ? diagnostic.correlationId
-        : 'unknown',
-      feature: diagnostic.feature || 'unknown',
-      level: diagnostic.level || 'feature',
+      correlationId: safeMetadata(safe.correlationId, 'unknown'),
+      feature: safeMetadata(safe.feature, 'unknown'),
+      level: safeMetadata(safe.level, 'feature'),
       kind: 'invalid_state',
       retryable: false,
       message: 'Diagnostic dropped: sensitive values detected',

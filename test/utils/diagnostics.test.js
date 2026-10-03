@@ -53,6 +53,37 @@ describe('diagnostics', () => {
     expect(containsSensitiveValue(safe)).toBe(false);
   });
 
+  it('redacts provider URL credentials and recognizes them before redaction', () => {
+    const cases = [
+      ['https://demo-user:diagnostic-canary-password@rpc.example.test/v1',
+        `https://${REDACTED}@rpc.example.test/v1`],
+      ['wss://demo-user:encoded%40canary%3Apassword@rpc.example.test:443/socket',
+        `wss://${REDACTED}@rpc.example.test:443/socket`],
+      ['postgresql://demo-user:diagnostic-canary-password@[2001:db8::1]:5432/vault',
+        `postgresql://${REDACTED}@[2001:db8::1]:5432/vault`],
+      ['//demo-user:diagnostic-canary-password@rpc.example.test/v1',
+        `//${REDACTED}@rpc.example.test/v1`],
+    ];
+    for (const [raw, expected] of cases) {
+      expect(containsSensitiveValue(raw)).toBe(true);
+      const safe = redactString(raw);
+      expect(safe).toBe(expected);
+      expect(redactString(safe)).toBe(safe);
+      expect(containsSensitiveValue(safe)).toBe(false);
+    }
+  });
+
+  it('keeps ordinary endpoint context and checks credential queries consistently', () => {
+    const endpoint = 'https://rpc.example.test:443/users/contact@example.test?network=test';
+    expect(redactString(endpoint)).toBe(endpoint);
+    expect(containsSensitiveValue(endpoint)).toBe(false);
+    const query = 'https://rpc.example.test/v1?api_key=diagnostic-canary-key&network=test';
+    expect(containsSensitiveValue(query)).toBe(true);
+    const safe = redactString(query);
+    expect(safe).toContain(`api_key=${REDACTED}&network=test`);
+    expect(containsSensitiveValue(safe)).toBe(false);
+  });
+
   it('classifies dependency failures as retryable', () => {
     const network = classifyError(new TypeError('Failed to fetch'));
     expect(network.retryable).toBe(true);

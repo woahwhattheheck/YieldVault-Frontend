@@ -31,6 +31,9 @@ const HEX_SECRET_PATTERN = /\b(?:0x)?[a-fA-F0-9]{64,}\b/g;
 const CRED_QUERY_PATTERN =
   /([?&#](?:token|access_token|refresh_token|api_key|apikey|secret|password|key)=)[^&#\s]+/gi;
 
+/** URL user information, including encoded credentials and relative URLs. */
+const URL_CREDENTIAL_PATTERN = /((?:\b[a-z][a-z0-9+.-]*:)?\/\/)[^\s/?#]+@/gi;
+
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504, 522, 524]);
 
 const RETRYABLE_MESSAGE =
@@ -59,6 +62,7 @@ export function createCorrelationId() {
 export function redactString(text) {
   if (typeof text !== 'string' || text.length === 0) return text;
   return text
+    .replace(URL_CREDENTIAL_PATTERN, `$1${REDACTED}@`)
     .replace(STELLAR_KEY_PATTERN, REDACTED)
     .replace(JWT_PATTERN, REDACTED)
     .replace(BEARER_PATTERN, `Bearer ${REDACTED}`)
@@ -111,16 +115,9 @@ export function redactSecrets(value, depth = 0) {
 export function containsSensitiveValue(value) {
   if (value == null) return false;
   if (typeof value === 'string') {
-    STELLAR_KEY_PATTERN.lastIndex = 0;
-    JWT_PATTERN.lastIndex = 0;
-    BEARER_PATTERN.lastIndex = 0;
-    HEX_SECRET_PATTERN.lastIndex = 0;
-    return (
-      STELLAR_KEY_PATTERN.test(value) ||
-      JWT_PATTERN.test(value) ||
-      BEARER_PATTERN.test(value) ||
-      HEX_SECRET_PATTERN.test(value)
-    );
+    // Keep the safety net aligned with every string redaction rule, including
+    // URL credentials and query parameters. Redaction is idempotent.
+    return redactString(value) !== value;
   }
   if (Array.isArray(value)) return value.some(containsSensitiveValue);
   if (typeof value === 'object') {

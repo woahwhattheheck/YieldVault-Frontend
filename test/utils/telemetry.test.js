@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   reportDiagnostic,
   getTelemetryEvents,
@@ -6,7 +6,9 @@ import {
 } from '../../src/utils/telemetry.js';
 import {
   buildSafeDiagnostic,
+  captureFailure,
   createAppError,
+  createDependencyError,
   REDACTED,
 } from '../../src/utils/diagnostics.js';
 
@@ -44,5 +46,38 @@ describe('telemetry', () => {
     });
     expect(stored?.dropped || stored?.message === `leaked ${REDACTED}` || !JSON.stringify(getTelemetryEvents()).includes(WALLET)).toBe(true);
     expect(JSON.stringify(getTelemetryEvents())).not.toContain(WALLET);
+  });
+
+  it('keeps provider URL credentials out of UI failures and stored diagnostics', () => {
+    const password = 'diagnostic-canary-password';
+    const failure = captureFailure(createDependencyError(
+      `RPC failed at https://demo-user:${password}@rpc.example.test/v1`,
+    ), { feature: 'vaults' });
+    const stored = reportDiagnostic(failure.diagnostic);
+    expect(stored).toBeTruthy();
+    expect(stored.correlationId).toBe(failure.correlationId);
+    expect(JSON.stringify(failure)).not.toContain(password);
+    expect(JSON.stringify(getTelemetryEvents())).not.toContain(password);
+    expect(stored.message).toContain('rpc.example.test/v1');
+  });
+
+  it('does not reintroduce raw metadata when dropping an unsafe event', () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const error = new Error('safe');
+      error.code = { secret: 'diagnostic-canary-password' };
+      const stored = reportDiagnostic({
+        correlationId: WALLET,
+        feature: WALLET,
+        level: WALLET,
+        error,
+      });
+      expect(stored.dropped).toBe(true);
+      expect(JSON.stringify(getTelemetryEvents())).not.toContain(WALLET);
+      expect(JSON.stringify(info.mock.calls)).not.toContain(WALLET);
+      expect(JSON.stringify(stored)).not.toContain('diagnostic-canary-password');
+    } finally {
+      info.mockRestore();
+    }
   });
 });
