@@ -2,6 +2,7 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   formatLocaleAmount,
+  getLocaleSeparators,
   parseLocaleAmount,
   roundTripCanonical,
   serializeAmount,
@@ -57,5 +58,47 @@ test('deterministic locale matrix preserves canonical decimal value on round tri
       assert.equal(serializeAmount(displayed, { locale }), canonical, `${locale}: ${canonical}`);
       assert.equal(roundTripCanonical(displayed, locale).canonical, canonical);
     }
+  }
+});
+
+test('locale caches retain bounded keys while long locale tags remain supported', () => {
+  const original = Intl.NumberFormat;
+  let constructions = 0;
+  Intl.NumberFormat = new Proxy(original, {
+    construct(target, args, newTarget) {
+      constructions += 1;
+      return Reflect.construct(target, args, newTarget);
+    },
+  });
+  // Private-use subtags are valid Intl inputs and may be much longer than a
+  // normal language tag. Exercise the admission edge and a large valid key.
+  const localeWithLength = (length) => {
+    const tail = length - 5;
+    const final = tail % 2 ? 'a' : 'aa';
+    return 'en-x-' + 'a-'.repeat((tail - final.length) / 2) + final;
+  };
+  try {
+    for (const length of [256, 257, 32772]) {
+      const locale = localeWithLength(length);
+      assert.equal(locale.length, length);
+      const options = { locale, maxFractionDigits: 7 };
+      const operations = [
+        () => assert.equal(parseLocaleAmount('1,234.125', options).canonical, '1234.125'),
+        () => assert.deepEqual(getLocaleSeparators(locale), { decimal: '.', group: ',' }),
+        () => assert.equal(formatLocaleAmount('1234.125', options), '1,234.125'),
+      ];
+      for (const exercise of operations) {
+        exercise();
+        const first = constructions;
+        exercise();
+        if (length <= 256) {
+          assert.equal(constructions, first, 'ordinary keys must retain formatter reuse');
+        } else {
+          assert.ok(constructions > first, 'long locale keys must not be retained');
+        }
+      }
+    }
+  } finally {
+    Intl.NumberFormat = original;
   }
 });

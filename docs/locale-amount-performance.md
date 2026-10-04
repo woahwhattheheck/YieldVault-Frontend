@@ -42,3 +42,30 @@ node scripts/benchmark-locale-amount.mjs --baseline-ref 0d4900088c257cb55f18faf3
 The script uses only Node built-ins, reads the baseline with `git show`, and imports the exact source bytes as data modules so the package's CommonJS mode requires no modification. It performs no network calls or repository writes.
 
 `--baseline path/to/baseline.js --candidate path/to/candidate.js` also supports saved files. Run on Node 24.19.0 or another runtime supporting the baseline's exact-decimal Intl behavior. JSON output includes every paired round, source hashes, constructor counts, and the four check-group receipts.
+
+## Bounding retained locale key length
+
+The caches now also limit retained locale keys to 256 characters. Intl accepts
+valid private-use locale tags much longer than ordinary language tags, so an
+entry-count limit alone did not bound the memory retained by raw keys. Both
+the locale metadata cache and the display formatter cache use the same length
+limit. Longer tags remain accepted through the existing uncached paths; the
+32-entry FIFO policy, lazy metadata and ordinary formatter reuse are preserved.
+
+The added maintained regression exercises 256-, 257- and 32,772-character
+valid tags independently through parsing, separator lookup and display. It
+forwards constructor calls to real Intl, confirms unchanged canonical/display
+results, confirms reuse at the limit, and confirms that each path recomputes
+longer keys. On parent `df843531b2aa4808bd45964a49f12b09ca98185e` the selected
+new regression fails because a long key is reused. With utility blob
+`23a07645d664e6e80fc2ecd9f6091d9b79c90eb8`, the complete maintained
+`test/utils/localeAmountDigits.test.js` selection passes **4/4**, including its
+three existing locale-digit, exact-boundary and deterministic round-trip cases.
+
+This focused run used Node 24.19.0 and real Vitest 4.1.10 with the unchanged
+pinned Vite configuration/setup and retained installed dependencies. The
+selection was `vitest run test/utils/localeAmountDigits.test.js --cache=false`;
+the baseline selected only the new case. No dependency installation, full
+application suite, browser build or performance benchmark was repeated for
+this small memory-bound correction. Earlier timings remain bound to the
+original measured source identified above.

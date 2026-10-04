@@ -9,6 +9,7 @@
 
 const DEFAULT_MAX_FRACTION = 7;
 const CACHE_LIMIT = 32;
+const MAX_CACHED_LOCALE_LENGTH = 256;
 const localeDataCache = new Map();
 const displayFormatterCache = new Map();
 
@@ -29,7 +30,8 @@ function readSeparators(formatter) {
 function getLocaleData(locale) {
   // Locale arrays/objects may have observable getters or coercion. Keep their
   // original Intl construction path, including its validation order.
-  if (typeof locale !== 'string') return null;
+  // Keep arbitrary-length valid private-use tags on the uncached path.
+  if (typeof locale !== 'string' || locale.length > MAX_CACHED_LOCALE_LENGTH) return null;
   let data = localeDataCache.get(locale);
   if (!data) {
     const formatter = new Intl.NumberFormat(locale);
@@ -44,7 +46,7 @@ function getLocaleData(locale) {
 function getDisplayFormatter(locale, minFraction, maxFraction, primitiveValue) {
   // Other Intl-supported inputs still work, but values needing coercion are
   // not cache keys. In particular, invalid options must retain Intl's errors.
-  const key = primitiveValue && typeof locale === 'string' &&
+  const key = primitiveValue && typeof locale === 'string' && locale.length <= MAX_CACHED_LOCALE_LENGTH &&
     typeof minFraction === 'number' && Number.isFinite(minFraction) &&
     typeof maxFraction === 'number' && Number.isFinite(maxFraction)
     ? JSON.stringify([locale, minFraction, maxFraction]) : null;
