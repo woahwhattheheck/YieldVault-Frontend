@@ -79,7 +79,7 @@ describe('useTxLifecycle', () => {
     expect(again.result.current.operation.state).toBe('confirmed');
   });
 
-  it('allows a new signature only after a definitive failure', async () => {
+  it('allows a new signature only after a definitive failure for the same mutation', async () => {
     const submit = vi.fn(async () => ({ hash: 'failed-hash' }));
     const getStatus = vi.fn(async () => ({ status: 'failed', hash: 'failed-hash' }));
     const { result } = renderHook(() => useTxLifecycle(options(getStatus)));
@@ -87,12 +87,18 @@ describe('useTxLifecycle', () => {
     const oldId = result.current.operation.clientOpId;
     expect(result.current.status.canRetry).toBe(true);
 
+    await act(async () => { await result.current.run('8', submit); });
+    expect(result.current.operation.state).toBe('failed');
+    expect(result.current.operation.clientOpId).toBe(oldId);
+    expect(submit).toHaveBeenCalledTimes(1);
+
     getStatus.mockResolvedValue({ status: 'confirmed', hash: 'new-hash' });
     await act(async () => { await result.current.run('7', submit); });
     expect(result.current.operation.state).toBe('confirmed');
     expect(result.current.operation.clientOpId).not.toBe(oldId);
     expect(submit).toHaveBeenCalledTimes(2);
   });
+
   it('restores a confirmed demo receipt without re-signing after refresh', async () => {
     const submit = vi.fn(async () => ({ hash: 'mock-hash' }));
     const getStatus = vi.fn(async () => ({
