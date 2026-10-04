@@ -1,0 +1,60 @@
+name: Locale amount minimum
+on:
+  push:
+    branches: [verify/locale-amount-minimum-20261004]
+permissions:
+  contents: read
+jobs:
+  minimum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: |
+          mkdir -p receipt
+          node --version > receipt/environment.txt
+          npm --version >> receipt/environment.txt
+          npm ci --no-audit --no-fund > receipt/install.log 2>&1
+      - name: Observe the original minimum behavior
+        shell: bash
+        run: |
+          cp src/components/AmountInput.tsx receipt/AmountInput.after.tsx
+          cp test/components/AmountInput.minimum.test.tsx receipt/
+          git show cba76006680da5e49698ab0e7bb09c2299ea3dfc:src/components/AmountInput.tsx > src/components/AmountInput.tsx
+          cp src/components/AmountInput.tsx receipt/AmountInput.before.tsx
+          set +e
+          npm test -- test/components/AmountInput.minimum.test.tsx --maxWorkers=1 --reporter=json --outputFile=receipt/before.json > receipt/before.log 2>&1
+          code=$?
+          set -e
+          echo "$code" > receipt/before.exit
+          cp receipt/AmountInput.after.tsx src/components/AmountInput.tsx
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('receipt/before.json', 'utf8'));
+          if (report.numTotalTests !== 7 || report.numFailedTests !== 7) {
+            throw new Error(`Unexpected baseline: ${report.numFailedTests}/${report.numTotalTests}`);
+          }
+          NODE
+      - name: Check minimum and maintained input behavior
+        run: |
+          npm test -- test/components/AmountInput.minimum.test.tsx test/components/AmountInput.test.tsx --maxWorkers=1 --reporter=json --outputFile=receipt/after.json > receipt/after.log 2>&1
+      - name: Compile the application
+        run: npm run build > receipt/build.log 2>&1
+      - name: Record source identity
+        if: always()
+        run: |
+          git rev-parse HEAD > receipt/validation-commit.txt
+          git hash-object src/components/AmountInput.tsx test/components/AmountInput.minimum.test.tsx > receipt/source-blobs.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: locale-amount-minimum-receipt
+          path: receipt/
+          retention-days: 7
