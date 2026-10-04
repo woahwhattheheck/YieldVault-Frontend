@@ -71,6 +71,26 @@ describe('txLifecycle state machine', () => {
     expect(getTxOperation(id)).toBeNull();
   });
 
+  it.each(['[]', '[null]'])('persists recoverable correlation after array storage %s', (raw) => {
+    sessionStorage.setItem('yieldvault.txOps', raw);
+    const op = {
+      clientOpId: 'op_array_recovery',
+      kind: 'deposit',
+      vaultId: 'vault-usdc',
+      amount: '25',
+      walletAddress: 'GOWNER',
+      network: 'testnet',
+      state: 'submitted',
+      updatedAt: new Date().toISOString(),
+    };
+
+    saveTxOperation(op);
+
+    expect(Array.isArray(JSON.parse(sessionStorage.getItem('yieldvault.txOps')))).toBe(false);
+    expect(getTxOperation(op.clientOpId)?.state).toBe('submitted');
+    expect(getActiveTxOperation(op)?.clientOpId).toBe(op.clientOpId);
+  });
+
   it('fingerprints mutation intents so edited amounts are distinct', () => {
     expect(
       fingerprintMutation({ kind: 'deposit', vaultId: 'v1', amount: '10' }),
