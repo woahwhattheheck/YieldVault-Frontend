@@ -11,17 +11,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - name: Install locked dependencies
+      - name: Install dependencies with the repository CI command
         run: |
           mkdir -p receipt
           node --version > receipt/environment.txt
           npm --version >> receipt/environment.txt
-          npm ci --no-audit --no-fund > receipt/install.log 2>&1
+          npm install --no-audit --no-fund > receipt/install.log 2>&1
+          cp package-lock.json receipt/resolved-package-lock.json
+          git diff --exit-code -- package.json
       - name: Observe the original minimum behavior
         shell: bash
         run: |
