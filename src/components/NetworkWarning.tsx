@@ -21,7 +21,7 @@ export default function NetworkWarning() {
 
   const guard = getNetworkGuardState(walletNetwork, CONFIG.network);
 
-  if (!isConnected || guard.matched || !walletNetwork) {
+  if (!isConnected || guard.matched) {
     return null;
   }
 
@@ -46,7 +46,7 @@ export default function NetworkWarning() {
     <div className="network-warning" role="alert" aria-live="assertive">
       <Alert variant="warning" title="Wrong Network">
         <p>
-          Your wallet is on <strong>{guard.connectedLabel || walletNetwork}</strong>, but
+          Your wallet is on <strong>{guard.connectedLabel || walletNetwork || 'Unknown'}</strong>, but
           this app expects <strong>{guard.expectedLabel}</strong>. Deposit and withdrawal
           actions are blocked until the networks match.
         </p>
