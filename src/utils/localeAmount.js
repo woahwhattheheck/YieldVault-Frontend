@@ -66,7 +66,14 @@ export function parseLocaleAmount(input, options = {}) {
   }
 
   const { decimal, group } = getLocaleSeparators(locale);
-  const parts = trimmed.split(decimal);
+  // Accept this locale's decimal digits, as well as ASCII keyboard input.
+  // Iterate code points: some numbering systems use surrogate-pair glyphs.
+  const digits = Array.from(new Intl.NumberFormat(locale, { useGrouping: false }).format(9876543210));
+  const localized = Array.from(trimmed, (character) => {
+    const index = digits.indexOf(character);
+    return index < 0 ? character : String(9 - index);
+  }).join('');
+  const parts = localized.split(decimal);
   if (parts.length > 2 || (parts.length === 2 && !/^\d+$/.test(parts[1]))) {
     return { ok: false, error: 'Amount format is invalid' };
   }
@@ -84,7 +91,7 @@ export function parseLocaleAmount(input, options = {}) {
   if (groups.length > 1) {
     // The rightmost and preceding groups may differ (e.g. 12,34,567 in hi-IN).
     const widths = new Intl.NumberFormat(locale).formatToParts(1234567890123)
-      .filter((part) => part.type === 'integer').map((part) => part.value.length);
+      .filter((part) => part.type === 'integer').map((part) => Array.from(part.value).length);
     const primary = widths[widths.length - 1];
     const secondary = widths[widths.length - 2] ?? primary;
     if (groups[0].length > secondary || groups[groups.length - 1].length !== primary ||
