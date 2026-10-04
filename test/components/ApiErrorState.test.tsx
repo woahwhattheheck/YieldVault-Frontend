@@ -11,6 +11,25 @@ import {
 } from '../../src/contracts/fixtures/index.js';
 
 describe('ApiErrorState', () => {
+  it('honors an explicit retry veto while retaining the legacy provider default', () => {
+    const onRetry = vi.fn();
+    const provider = adaptErrorPayload(providerFailure);
+    const { rerender } = render(
+      <ApiErrorState error={{ ...provider, retryable: false }} onRetry={onRetry} />,
+    );
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('api-error-correlation')).toHaveTextContent(provider.requestId!);
+
+    rerender(
+      <ApiErrorState error={{ ...provider, retryable: undefined }} onRetry={onRetry} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    rerender(<ApiErrorState error={{ ...provider, retryable: false }} onRetry={onRetry} />);
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+  });
+
   it('renders each supported error kind without leaking raw payloads', () => {
     const cases = [
       { fixture: validationError, kind: 'validation' },

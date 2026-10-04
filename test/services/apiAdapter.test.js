@@ -22,6 +22,30 @@ import {
 } from '../../src/contracts/fixtures/index.js';
 
 describe('apiAdapter', () => {
+  it('honors an explicit provider retry veto without changing its kind or correlation', () => {
+    const payload = structuredClone(providerFailure);
+    payload.error.details = { ...payload.error.details, retryable: false };
+    expect(adaptErrorPayload(payload)).toMatchObject({
+      kind: API_ERROR_KIND.PROVIDER,
+      retryable: false,
+      requestId: providerFailure.error.requestId,
+    });
+
+    delete payload.error.details;
+    expect(adaptErrorPayload(payload).retryable).toBe(true);
+  });
+
+  it('does not let a retry hint enable retries for non-provider error kinds', () => {
+    for (const fixture of [validationError, authorizationError, terminalError]) {
+      const payload = structuredClone(fixture);
+      payload.error.details = { retryable: true };
+      const adapted = adaptErrorPayload(payload);
+      expect(adapted.kind).toBe(adaptErrorPayload(fixture).kind);
+      expect(adapted.retryable).toBe(false);
+      expect(adapted).not.toHaveProperty('details');
+    }
+  });
+
   it('maps validation / authorization / provider / terminal fixtures to UI kinds', () => {
     expect(adaptErrorPayload(validationError).kind).toBe(API_ERROR_KIND.VALIDATION);
     expect(adaptErrorPayload(authorizationError).kind).toBe(API_ERROR_KIND.AUTHORIZATION);

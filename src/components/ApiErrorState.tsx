@@ -37,7 +37,7 @@ const KIND_LABEL: Record<ApiErrorKind, string> = {
 };
 
 export default function ApiErrorState({ error, onRetry }: ApiErrorStateProps) {
-  const showRetry = Boolean(onRetry) && (error.retryable || error.kind === 'provider');
+  const showRetry = Boolean(onRetry) && (error.retryable ?? error.kind === 'provider');
   const title = KIND_LABEL[error.kind] || KIND_LABEL.unknown;
 
   return (

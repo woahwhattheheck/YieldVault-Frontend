@@ -77,12 +77,13 @@ function safeMessage(error, kind) {
 export function adaptErrorPayload(payload) {
   const verified = enforce('errorResponse', payload);
   const kind = classifyError(verified.error);
+  const details = verified.error.details;
   const retryable =
-    kind === API_ERROR_KIND.PROVIDER ||
-    (verified.error.details &&
-      typeof verified.error.details === 'object' &&
-      !Array.isArray(verified.error.details) &&
-      verified.error.details.retryable === true);
+    kind === API_ERROR_KIND.PROVIDER &&
+    !(details &&
+      typeof details === 'object' &&
+      !Array.isArray(details) &&
+      details.retryable === false);
 
   return Object.freeze({
     kind,
