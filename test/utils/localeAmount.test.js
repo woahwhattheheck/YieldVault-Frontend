@@ -153,3 +153,35 @@ describe('localeAmount', () => {
     expect(result.ok).toBe(false);
   });
 });
+
+
+describe('exact decimal display and upper boundary', () => {
+  it.each(['en-US', 'de-DE', 'fr-FR', 'hi-IN', 'sv-SE', 'de-CH'])('reconciles large decimal display with serialization in %s', (locale) => {
+    for (const canonical of ['123456789012.1234567', '9007199254740990.9', '99999999999.9999999', '1000000000.0000001', '0.0000001']) {
+      const displayed = formatLocaleAmount(canonical, { locale, maxFractionDigits: 7 });
+      expect(serializeAmount(displayed, { locale })).toBe(canonical);
+      expect(roundTripCanonical(displayed, locale).canonical).toBe(canonical);
+    }
+  });
+
+  it.each(['en-US', 'de-DE', 'fr-FR', 'hi-IN'])('rejects nonzero fractional excess above the safe boundary in %s', (locale) => {
+    const { decimal } = getLocaleSeparators(locale);
+    for (const fraction of ['1', '0000001', '000001', '01', '5', '9']) {
+      const entered = `9007199254740991${decimal}${fraction}`;
+      expect(parseLocaleAmount(entered, { locale })).toEqual({ ok: false, error: 'Amount is outside the supported numeric range' });
+      expect(() => serializeAmount(entered, { locale })).toThrow('Amount is outside the supported numeric range');
+    }
+    for (const fraction of ['', `${decimal}0`, `${decimal}0000000`]) {
+      expect(parseLocaleAmount(`9007199254740991${fraction}`, { locale }).ok).toBe(true);
+    }
+    expect(serializeAmount(`9007199254740990${decimal}9999999`, { locale })).toBe('9007199254740990.9999999');
+  });
+
+  it('keeps display rounding explicit without mutating canonical serialization', () => {
+    expect(formatLocaleAmount('99999999999.9999999', { maxFractionDigits: 2 })).toBe('100,000,000,000');
+    expect(formatLocaleAmount('123456789012.125', { maxFractionDigits: 2 })).toBe('123,456,789,012.13');
+    expect(serializeAmount('99999999999.9999999')).toBe('99999999999.9999999');
+    expect(formatLocaleAmount(1234.5, { minFractionDigits: 2 })).toBe('1,234.50');
+    expect(formatLocaleAmount('not-a-number')).toBe('');
+  });
+});

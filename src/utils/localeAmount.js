@@ -124,7 +124,11 @@ function finalizeCanonical(canonical, maxFraction) {
   if (!Number.isFinite(value)) {
     return { ok: false, error: 'Amount is outside the supported numeric range' };
   }
-  if (Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+  // A fraction above the largest supported integer can round back down
+  // during Number conversion. Compare that exact decimal boundary as text.
+  const aboveExactMaximum = canonical.split('.')[0] === String(Number.MAX_SAFE_INTEGER)
+    && /[1-9]/.test(fraction);
+  if (Math.abs(value) > Number.MAX_SAFE_INTEGER || aboveExactMaximum) {
     return { ok: false, error: 'Amount is outside the supported numeric range' };
   }
   if (value < 0) {
@@ -174,7 +178,9 @@ export function formatLocaleAmount(value, options = {}) {
     minimumFractionDigits: minFraction,
     maximumFractionDigits: maxFraction,
     useGrouping: true,
-  }).format(num);
+  // Intl accepts exact decimal strings; converting them to Number first
+  // would discard supported digits before the configured display rounding.
+  }).format(typeof value === 'string' ? value : num);
 }
 
 /**

@@ -324,3 +324,37 @@ describe('amount rejection reaches deposit and withdrawal', () => {
     });
   });
 });
+
+
+describe('exact canonical amount remains visible', () => {
+  it.each([
+    ['en-US', '123,456,789,012.1234567', '123456789012.1234567', '123,456,789,012.1234568'],
+    ['de-DE', '123.456.789.012,1234567', '123456789012,1234567', '123.456.789.012,1234568'],
+    ['fr-FR', '123\u202f456\u202f789\u202f012,1234567', '123456789012,1234567', '123\u202f456\u202f789\u202f012,1234568'],
+    ['hi-IN', '1,23,45,67,89,012.1234567', '123456789012.1234567', '1,23,45,67,89,012.1234568'],
+  ])('preserves all seven decimal digits through focus, edit and blur in %s', (locale, display, editing, editedDisplay) => {
+    render(<ControlledAmountInput locale={locale} initialValue="123456789012.1234567" />);
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveValue(display);
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('123456789012.1234567');
+    fireEvent.focus(input);
+    expect(input).toHaveValue(editing);
+    fireEvent.change(input, { target: { value: `${editing.slice(0, -1)}8` } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue(editedDisplay);
+    expect(screen.getByTestId('canonical-amount')).toHaveTextContent('123456789012.1234568');
+    expect(input).not.toHaveAttribute('aria-invalid');
+  });
+
+  it.each([['en-US', '.'], ['de-DE', ',']])('clears a fractional out-of-range amount in %s', (locale, decimal) => {
+    render(<ControlledAmountInput locale={locale} initialValue="10" />);
+    const input = screen.getByRole('textbox');
+    const invalid = `9007199254740991${decimal}0000001`;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: invalid } });
+    fireEvent.blur(input);
+    expect(input).toHaveValue(invalid);
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByTestId('canonical-amount')).toBeEmptyDOMElement();
+  });
+});
