@@ -53,7 +53,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
     setSubmitting(true);
     setMessage(null);
     try {
-      await vaultService.deposit(vault.id, Number(amount));
+      await vaultService.deposit(vault.id, amount);
       await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
       setMessage(`Deposited ${amount} ${vault.asset}`);
       setAmount('');
