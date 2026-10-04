@@ -24,7 +24,7 @@ the values. All variables are optional.
 ```
 src/
   components/   reusable UI (Button, StatCard, VaultCard, FormWizard, ...)
-  pages/        routed views (Home, Dashboard, VaultDetail, Positions, WizardDemo)
+  pages/        page components (Home, Dashboard, VaultDetail, Positions, WizardDemo)
   hooks/        data hooks (useWallet, useVault, useVaults, usePositions)
   context/      AppContext for shared wallet state
   services/     mock api / wallet / vault services
@@ -39,9 +39,9 @@ src/
 - Dashboard showing protocol TVL, average APY and your aggregate position, plus
   an APY-by-vault trend chart with a clickable legend to show/hide each
   vault's series (`LineChart`/`ChartLegend`)
-- Vault detail pages with multi-step deposit/withdraw wizards (Amount → Review → Confirm) and a live shares preview
+- Vault detail pages with single-page deposit/withdraw forms, a Deposit/Withdraw tab selector, and a live shares preview
 - Multi-step form wizard (`FormWizard`) for any guided step-by-step flow — reusable component with validation, animated transitions, progress tracking, and keyboard support
-- Wizard demo page at `/wizard-demo` showcasing a 4-step "Create Vault" form example
+- `WizardDemo` component containing a 4-step "Create Vault" example; it is currently not mounted by the application router
 - Positions list with per-vault value and earned yield
 - **Resizable table columns** — data tables feature interactive column resize handles for customizing column widths
 - **Amount input with thousands separators** — deposit and withdraw forms now display amounts with comma separators for better readability (e.g., 1,000,000)
@@ -58,6 +58,24 @@ src/
   form wizard instead of leaving them phone-narrow, and tightens the
   wizard's vertical spacing for the shorter viewport
 - **Screen reader support** — route changes are announced to screen readers via an ARIA live region (`RouteAnnouncer` component), providing navigation feedback to users of assistive technologies. All icon-only buttons include descriptive aria-labels for accessibility
+
+## Deposit, withdrawal and wizard routes
+
+Open a vault from the dashboard to use the routed forms at `/vault/:id`
+(for example, `/vault/usdc-vault`). Connect the mock wallet and choose Deposit
+or Withdraw. [VaultDetail](src/pages/VaultDetail.jsx) renders the single-page
+`DepositForm` and `WithdrawForm` components under those tabs.
+
+[App.jsx](src/App.jsx) does not register `/wizard-demo`; that URL reaches the
+not-found route. The reusable wizard components and `WizardDemo` source remain
+available for component work, separate from the routed vault forms.
+
+The [2026-10-03 routed browser verification](docs/accessibility-browser-verification.md)
+records the keyboard workflow for the vault forms, their form-scoped axe
+checks and the limits of that historical evidence. Wizard component tests
+are separate from those browser results. VoiceOver/NVDA auditory verification
+remains open; the mock-service workflow does not verify real wallet signing
+or network settlement.
 
 ## Design & Typography System
 
