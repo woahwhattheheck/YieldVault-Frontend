@@ -63,7 +63,7 @@ export async function getVaultApyHistory(vaultId, days = 30) {
 /**
  * Simulate a deposit and return the minted shares plus a receipt.
  * @param {string} vaultId
- * @param {number} amount
+ * @param {number|string} amount
  * @returns {Promise<{ shares: number, vaultId: string }>}
  */
 export async function deposit(vaultId, amount) {
@@ -76,7 +76,7 @@ export async function deposit(vaultId, amount) {
 /**
  * Simulate a withdrawal and return the burned shares plus a receipt.
  * @param {string} vaultId
- * @param {number} amount
+ * @param {number|string} amount
  * @returns {Promise<{ shares: number, vaultId: string }>}
  */
 export async function withdraw(vaultId, amount) {
