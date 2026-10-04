@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import { MemoryRouter, Link, useLocation } from 'react-router-dom';
 import App from '../../src/App';
 import { AppProvider } from '../../src/context/AppContext.jsx';
@@ -49,6 +49,16 @@ function healthyVault(id) {
     id, name: `Vault ${id}`, asset: 'USDC', strategy: 'Local test vault',
     apy: 0, tvl: 1000, totalAssets: 1000, totalShares: 1000,
   };
+}
+
+function deferredVault() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolveValue, rejectValue) => {
+    resolve = resolveValue;
+    reject = rejectValue;
+  });
+  return { promise, resolve, reject };
 }
 
 describe('error boundary integration', () => {
@@ -267,5 +277,78 @@ describe('actual App navigation after route failures', () => {
     expect(await screen.findByRole('heading', { name: 'Vault healthy' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Withdraw' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.queryByTestId('error-boundary-fallback')).not.toBeInTheDocument();
+  });
+
+  it.each(['success', 'failure'])('keeps the current vault after an obsolete request settles with %s', async (outcome) => {
+    const previous = deferredVault();
+    vaultService.getVault.mockImplementation((id) => (
+      id === 'first' ? previous.promise : Promise.resolve(healthyVault(id))
+    ));
+    renderApp('/vault/first');
+    fireEvent.click(screen.getByRole('link', { name: 'Open healthy vault' }));
+    expect(await screen.findByRole('heading', { name: 'Vault healthy' })).toBeInTheDocument();
+
+    await act(async () => {
+      if (outcome === 'success') previous.resolve(healthyVault('first'));
+      else previous.reject(createAppError('Obsolete vault request failed', {
+        code: 'DEPENDENCY_FAILURE', retryable: true, status: 503,
+      }));
+    });
+
+    expect(screen.getByRole('heading', { name: 'Vault healthy' })).toBeInTheDocument();
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
+    expect(getTelemetryEvents()).toHaveLength(0);
+  });
+
+  it('keeps the current vault loading when a superseded request finishes first', async () => {
+    const previous = deferredVault();
+    const current = deferredVault();
+    vaultService.getVault.mockImplementation((id) => (
+      id === 'first' ? previous.promise : current.promise
+    ));
+    renderApp('/vault/first');
+    fireEvent.click(screen.getByRole('link', { name: 'Open healthy vault' }));
+
+    await act(async () => { previous.resolve(healthyVault('first')); });
+
+    expect(screen.getByText('Loading vault…')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Vault first' })).not.toBeInTheDocument();
+    await act(async () => { current.resolve(healthyVault('healthy')); });
+    expect(screen.getByRole('heading', { name: 'Vault healthy' })).toBeInTheDocument();
+  });
+
+  it('keeps a current dependency failure correlated and recovers on its retry', async () => {
+    vaultService.getVault
+      .mockRejectedValueOnce(createAppError('Current provider unavailable', {
+        code: 'DEPENDENCY_FAILURE', retryable: true, status: 503,
+      }))
+      .mockResolvedValueOnce(healthyVault('current'));
+    renderApp('/vault/current');
+    const error = await screen.findByTestId('error-message');
+    expect(within(error).getByTestId('error-correlation-id').textContent).toMatch(/^yv-/);
+    expect(getTelemetryEvents()).toHaveLength(1);
+
+    fireEvent.click(within(error).getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByRole('heading', { name: 'Vault current' })).toBeInTheDocument();
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
+    expect(vaultService.getVault).toHaveBeenCalledTimes(2);
+    expect(getTelemetryEvents()).toHaveLength(1);
+  });
+
+  it('does not report a pending vault failure after the page unmounts', async () => {
+    const previous = deferredVault();
+    vaultService.getVault.mockReturnValue(previous.promise);
+    const page = renderApp('/vault/first');
+    expect(vaultService.getVault).toHaveBeenCalledWith('first');
+
+    page.unmount();
+    await act(async () => {
+      previous.reject(createAppError('Obsolete unmounted request', {
+        code: 'DEPENDENCY_FAILURE', retryable: true, status: 503,
+      }));
+    });
+
+    expect(getTelemetryEvents()).toHaveLength(0);
   });
 });

@@ -71,6 +71,44 @@ The navigation reset applies only to a boundary in an error state. It does not
 remount a healthy page or the shared application provider, and it preserves the
 existing redacted diagnostics and correlation references.
 
+### Vault request ownership
+
+A vault load only updates data, loading state, or diagnostics while it is the
+current request. Starting another load supersedes the previous one; changing
+vault IDs or unmounting retires pending callbacks. An old response can no longer
+replace a healthy destination, display its previous vault's error, or finish
+the destination's loading indicator. Current dependency failures retain their
+correlation reference and the Retry action.
+
+The maintained `test/integration/errorBoundaries.test.jsx` file exercises the
+actual App, router, provider, navbar, pages, hook and diagnostics with deferred
+service responses. The same complete 17 cases produced **13 passed / 4 failed**
+against the previous hook and **17 passed / 0 failed / 0 pending** after the
+repair. Five added cases cover obsolete success and failure, loading while the
+new request remains pending, current-failure retry, and failure after unmount.
+All 12 existing integration cases remain and passed both times, including
+healthy Withdraw-tab preservation and same-path query/fragment behavior.
+
+Source pins: baseline hook `c5b55e35b0e9907bb73331c9ed8524dc21cbd73f` at
+`443077d424c47918f8d57f12065068a9a543bba3`; repaired hook
+`76c7066ccde6b196fb0e4fcb652ca6959b451fc1`; identical test blob for both
+runs `46bfa5d42f18c1c9fb4c976173a494fa73917503`.
+
+Reproduce from the repository with its existing dependencies:
+
+```bash
+NODE_OPTIONS=--max-old-space-size=128 node node_modules/vitest/vitest.mjs run \
+  test/integration/errorBoundaries.test.jsx \
+  --maxWorkers=1 --no-file-parallelism --pool=threads
+```
+
+The local run used the unchanged Vite configuration and setup on Linux,
+Node 24.19.0, React 18.3.1, React Router DOM 6.30.4, Testing Library 16.3.2,
+jsdom 29.1.1 and Vitest 4.1.10 (root Vite 5.4.21, internal Vite 8.1.5).
+Retained dependencies were reused without installation or manifest changes.
+This is mounted DOM integration evidence; the full suite, production build,
+Chromium and live wallet/provider execution were not rerun for this change.
+
 ## Design & Typography System
 
 YieldVault uses a structured, standardized design system powered by CSS variables under `:root` in `src/styles/index.css`.

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import * as vaultService from '../services/vault.js';
 import {
   assertWellFormedResponse,
@@ -27,14 +27,18 @@ export function useVault(id) {
   const [correlationId, setCorrelationId] = useState(null);
   const [retryable, setRetryable] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const requestGeneration = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++requestGeneration.current;
+    const isCurrent = () => requestGeneration.current === generation;
     setLoading(true);
     setError(null);
     setCorrelationId(null);
     setRetryable(true);
     try {
       const data = await vaultService.getVault(id);
+      if (!isCurrent()) return;
       if (!data) {
         throw createAppError('Vault not found', {
           code: 'INVALID_STATE',
@@ -48,6 +52,7 @@ export function useVault(id) {
       setVault(data);
       setLastUpdated(new Date());
     } catch (err) {
+      if (!isCurrent()) return;
       const failure = captureFailure(err, {
         feature: 'vault',
         level: 'feature',
@@ -57,12 +62,16 @@ export function useVault(id) {
       setCorrelationId(failure.correlationId);
       setRetryable(failure.retryable);
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [id]);
 
   useEffect(() => {
     load();
+    return () => {
+      // Navigation, unmount and StrictMode cleanup retire pending callbacks.
+      requestGeneration.current += 1;
+    };
   }, [load]);
 
   return {
