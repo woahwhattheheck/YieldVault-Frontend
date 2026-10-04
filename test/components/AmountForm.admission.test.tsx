@@ -66,7 +66,7 @@ describe('amount form submission admission', () => {
     await act(async () => { walletPending.resolve(); });
     expect(initialCalls).toBe(1);
     expect(callsWhileSigning).toBe(1);
-    expect(operation).toHaveBeenCalledExactlyOnceWith('admission-vault', 1.25);
+    expect(operation).toHaveBeenCalledExactlyOnceWith('admission-vault', '1.25');
     expect(walletService.signAndSubmit).toHaveBeenCalledExactlyOnceWith(`${label} 1.25 USDC`);
     expect(onSuccess).toHaveBeenCalledTimes(1);
   });
@@ -103,7 +103,7 @@ describe('amount form submission admission', () => {
     expect(screen.getByRole('textbox')).toHaveValue('0,0000001');
     expect(screen.getByRole('button', { name: label })).toBeEnabled();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: label })); });
-    expect(operation).toHaveBeenCalledExactlyOnceWith('admission-vault', 0.0000001);
+    expect(operation).toHaveBeenCalledExactlyOnceWith('admission-vault', '0.0000001');
     expect(walletService.signAndSubmit).toHaveBeenCalledExactlyOnceWith(`${label} 0.0000001 USDC`);
   });
 
