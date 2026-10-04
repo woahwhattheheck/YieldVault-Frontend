@@ -111,16 +111,36 @@ function main() {
     encoding: 'utf8',
     maxBuffer: 20 * 1024 * 1024,
   });
+  // npm uses exit 1 for a completed audit with findings. Other failures must
+  // never be interpreted as an empty, clean vulnerability report.
+  if (fullAudit.error || fullAudit.signal || ![0, 1].includes(fullAudit.status)) {
+    console.error(
+      'dependency-gate: npm audit did not complete:',
+      fullAudit.error?.code || fullAudit.signal || `exit ${fullAudit.status}`,
+    );
+    process.exit(2);
+  }
   let report;
   try {
-    report = JSON.parse(fullAudit.stdout || '{}');
+    report = JSON.parse(fullAudit.stdout);
   } catch (err) {
     console.error('dependency-gate: failed to parse npm audit JSON:', err.message);
     process.exit(2);
   }
 
-  const vulns = report.vulnerabilities || {};
-  const counts = report.metadata?.vulnerabilities || {};
+  const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const severities = ['info', 'low', 'moderate', 'high', 'critical'];
+  const vulns = report?.vulnerabilities;
+  const counts = report?.metadata?.vulnerabilities;
+  if (
+    !isRecord(report) || report.error || report.auditReportVersion !== 2 ||
+    !isRecord(vulns) || !isRecord(counts) ||
+    ![...severities, 'total'].every((key) => Number.isSafeInteger(counts[key]) && counts[key] >= 0) ||
+    !Object.values(vulns).every((entry) => isRecord(entry) && severities.includes(entry.severity))
+  ) {
+    console.error('dependency-gate: npm audit returned an error or an incomplete vulnerability report');
+    process.exit(2);
+  }
   console.log(
     `dependency-gate: vulnerability summary — critical=${counts.critical ?? 0} high=${counts.high ?? 0} moderate=${counts.moderate ?? 0} low=${counts.low ?? 0}`,
   );

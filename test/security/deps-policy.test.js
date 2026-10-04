@@ -1,4 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
   DEPENDENCY_POLICY,
   isLicenseAllowed,
@@ -82,5 +86,79 @@ describe('dependency failure policy', () => {
     expect(pkg.scripts['audit:deps']).toMatch(/check-deps/);
     expect(pkg.scripts['security:emit-headers']).toMatch(/emit-hosting-headers/);
     expect(pkg.scripts['smoke:headers']).toMatch(/smoke-headers/);
+  });
+});
+
+describe('dependency audit execution', () => {
+  const checker = resolve('security/check-deps.mjs');
+  const report = (severity) => ({
+    auditReportVersion: 2,
+    vulnerabilities: severity ? {example: {severity, via: []}} : {},
+    metadata: {
+      vulnerabilities: {
+        info: 0, low: 0, moderate: 0, high: 0, critical: 0,
+        ...(severity ? {[severity]: 1} : {}), total: severity ? 1 : 0,
+      },
+    },
+  });
+
+  function runChecker(auditResult) {
+    const dir = mkdtempSync(join(tmpdir(), 'yieldvault-audit-'));
+    try {
+      const preload = join(dir, 'audit-result.cjs');
+      // Run the complete checker with a controlled npm process result, so
+      // registry availability and today's advisories cannot change this check.
+      writeFileSync(preload, `
+        const childProcess = require('node:child_process');
+        childProcess.spawnSync = () => (${JSON.stringify(auditResult)});
+        require('node:module').syncBuiltinESMExports();
+      `);
+      return spawnSync(process.execPath, ['--require', preload, checker], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+    } finally {
+      rmSync(dir, {recursive: true, force: true});
+    }
+  }
+
+  it('fails with tooling exit 2 when npm is genuinely unavailable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'yieldvault-no-npm-'));
+    try {
+      const result = spawnSync(process.execPath, [checker], {
+        cwd: dir, encoding: 'utf8', env: {...process.env, PATH: dir},
+      });
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('npm audit did not complete');
+      expect(result.stdout).not.toContain('no critical vulnerability findings');
+    } finally {
+      rmSync(dir, {recursive: true, force: true});
+    }
+  });
+
+  it.each([
+    ['terminated audit', {status: null, signal: 'SIGTERM', stdout: JSON.stringify(report())}],
+    ['unexpected exit status', {status: 2, stdout: JSON.stringify(report())}],
+    ['output buffer failure', {status: 0, error: {code: 'ENOBUFS'}, stdout: JSON.stringify(report())}],
+    ['empty output', {status: 0, stdout: ''}],
+    ['malformed JSON', {status: 1, stdout: '{'}],
+    ['npm error response', {status: 1, stdout: JSON.stringify({error: {code: 'ENOAUDIT'}})}],
+    ['incomplete report', {status: 0, stdout: JSON.stringify({vulnerabilities: {}})}],
+  ])('fails with tooling exit 2 for %s', (_, auditResult) => {
+    const result = runChecker(auditResult);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('dependency-gate:');
+    expect(result.stdout).not.toContain('no critical vulnerability findings');
+  });
+
+  it.each([
+    ['clean', undefined, 0, 0],
+    ['high severity', 'high', 1, 0],
+    ['critical severity', 'critical', 1, 1],
+  ])('preserves %s policy for a completed audit', (_, severity, status, expected) => {
+    const result = runChecker({status, stdout: JSON.stringify(report(severity))});
+    expect(result.status).toBe(expected);
+    if (severity === 'high') expect(result.stderr).toContain('WARN high');
+    if (severity === 'critical') expect(result.stderr).toContain('FAIL');
   });
 });
