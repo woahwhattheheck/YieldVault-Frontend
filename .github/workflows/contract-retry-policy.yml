@@ -11,61 +11,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: control
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        with:
-          ref: 91cd3e8fff8389ce3213e6cff68ddfad97443d03
-          path: app
+          ref: 2f84efcb7ee69c2a14ce9826a7b675797b928ebe
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Install the existing package dependencies
-        working-directory: app
+      - name: Install the existing dependencies and record source
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ../evidence
-          git rev-parse HEAD HEAD^{tree} > ../evidence/source.txt
-          node --version > ../evidence/runtime.txt
-          npm --version >> ../evidence/runtime.txt
-          npm install --no-audit --no-fund > ../evidence/install.log 2>&1
-          npm ls react react-dom vitest vite jsdom @testing-library/react > ../evidence/dependencies.txt
-          cp package-lock.json ../evidence/resolved-package-lock.json
-      - name: Run the same maintained adapter and component cases before and after
-        working-directory: app
+          mkdir -p evidence
+          git rev-parse HEAD HEAD^{tree} > evidence/source.txt
+          node --version > evidence/runtime.txt
+          npm --version >> evidence/runtime.txt
+          npm install --no-audit --no-fund > evidence/install.log 2>&1
+          npm ls react react-dom vitest vite jsdom typescript @testing-library/react > evidence/dependencies.txt
+          cp package-lock.json evidence/resolved-package-lock.json
+      - name: Run the four maintained contract and component files
         shell: bash
         run: |
           set -euo pipefail
-          python3 ../control/.github/validation/contract_retry_policy.py tests
-          set +e
-          npm test -- test/services/apiAdapter.test.js test/components/ApiErrorState.test.tsx --maxWorkers=1 --reporter=json --outputFile=../evidence/before.json > ../evidence/before.log 2>&1
-          before=$?
-          set -e
-          cat ../evidence/before.log
-          test "$before" -eq 1
+          npm test -- test/components/DepositForm.contract.test.jsx test/contracts/schema.test.js test/services/apiAdapter.test.js test/components/ApiErrorState.test.tsx --maxWorkers=1 --reporter=json --outputFile=evidence/focused.json > evidence/focused.log 2>&1
+          cat evidence/focused.log
           python3 - <<'PY'
           import json
-          d = json.load(open('../evidence/before.json'))
-          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (10, 3, 0), d
-          print('Original source: 10 passed, 3 reproduced failures, 0 pending')
+          d = json.load(open('evidence/focused.json'))
+          assert d['numFailedTests'] == 0 and d['numPendingTests'] == 0, d
+          assert d['numPassedTests'] > 13, d
+          print('Combined maintained cases:', d['numPassedTests'], 'passed, 0 failed, 0 pending')
           PY
-          python3 ../control/.github/validation/contract_retry_policy.py product
-          npm test -- test/services/apiAdapter.test.js test/components/ApiErrorState.test.tsx --maxWorkers=1 --reporter=json --outputFile=../evidence/after.json > ../evidence/after.log 2>&1
-          cat ../evidence/after.log
-          python3 - <<'PY'
-          import json
-          d = json.load(open('../evidence/after.json'))
-          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (13, 0, 0), d
-          print('Repaired source: 13 passed, 0 failed, 0 pending')
-          PY
-          python3 ../control/.github/validation/contract_retry_policy.py record > ../evidence/source-blobs.json
-          git diff -- src/services/apiAdapter.js src/components/ApiErrorState.tsx test/services/apiAdapter.test.js test/components/ApiErrorState.test.tsx > ../evidence/source.patch
-          tar -czf ../evidence/postimages.tar.gz src/services/apiAdapter.js src/components/ApiErrorState.tsx test/services/apiAdapter.test.js test/components/ApiErrorState.test.tsx
+      - name: Build the exact combined source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build > evidence/build.log 2>&1
+          cat evidence/build.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: contract-retry-policy
+          name: contract-ui-composed-head
           path: evidence
           retention-days: 14
