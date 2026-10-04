@@ -4,6 +4,7 @@ import {
   clearTxOperation,
   createClientOpId,
   describeTxStatus,
+  fingerprintMutation,
   getActiveTxOperation,
   getLatestTxOperation,
   getTxOperation,
@@ -97,7 +98,12 @@ export function useTxLifecycle({
   ): Promise<TxOperation | null> => {
     const current = getActiveTxOperation({ kind, vaultId, walletAddress, network });
     if (lockRef.current || (current && current.state !== 'failed')) return current;
-    if (current?.state === 'failed' && !current.retryable) return current;
+    if (current?.state === 'failed') {
+      if (!current.retryable ||
+        fingerprintMutation(current) !== fingerprintMutation({ kind, vaultId, amount })) {
+        return current;
+      }
+    }
 
     lockRef.current = true;
     const next: TxOperation = {
