@@ -49,12 +49,18 @@ export function useTxLifecycle({ kind, vaultId }) {
   const run = useCallback(
     async (amount, submitFn) => {
       const fingerprint = fingerprintMutation({ kind, vaultId, amount });
-      const current = operation ? getTxOperation(operation.clientOpId) : null;
+      // Another mounted form may have submitted since this hook last rendered.
+      const active = getActiveTxOperation({ kind, vaultId });
+      const local = operation?.kind === kind && operation?.vaultId === vaultId
+        ? operation
+        : null;
+      const current = active ?? (local ? getTxOperation(local.clientOpId) ?? local : null);
 
       if (
         current &&
         (current.state === 'submitted' || current.state === 'confirming')
       ) {
+        setOperation(current);
         return current;
       }
 
@@ -125,10 +131,14 @@ export function useTxLifecycle({ kind, vaultId }) {
   );
 
   const reset = useCallback(() => {
+    const current = getActiveTxOperation({ kind, vaultId }) ?? operation;
+    // Dismissal must not remove the only refresh-safe reference while a
+    // submission is pending, even when it belongs to a prior hook instance.
+    if (lockRef.current || current?.state === 'submitted' || current?.state === 'confirming') return;
     if (operation?.clientOpId) clearTxOperation(operation.clientOpId);
     fingerprintRef.current = null;
     setOperation(null);
-  }, [operation]);
+  }, [kind, vaultId, operation]);
 
   const status = describeTxStatus(operation);
   const busy =

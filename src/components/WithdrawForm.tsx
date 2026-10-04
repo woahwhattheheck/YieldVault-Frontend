@@ -53,10 +53,11 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const submitWithdraw = async (value: string) => {
     setMessage(null);
     try {
-      await run(value, async () => {
+      const completed = await run(value, async () => {
         await vaultService.withdraw(vault.id, Number(value));
         return walletService.signAndSubmit(`Withdraw ${value} ${vault.asset}`);
       });
+      if (completed?.state !== 'confirmed') return;
       setMessage(`Withdrew ${value} ${vault.asset}`);
       setAmount('');
       onSuccess?.();

@@ -56,7 +56,7 @@ export default function TxStatus({
             Retry
           </Button>
         )}
-        {onDismiss && (
+        {onDismiss && state !== 'submitted' && state !== 'confirming' && (
           <Button type="button" variant="secondary" onClick={onDismiss}>
             Dismiss
           </Button>

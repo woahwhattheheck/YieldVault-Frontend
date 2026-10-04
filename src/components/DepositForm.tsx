@@ -46,10 +46,11 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const submitDeposit = async (value: string) => {
     setMessage(null);
     try {
-      await run(value, async () => {
+      const completed = await run(value, async () => {
         await vaultService.deposit(vault.id, Number(value));
         return walletService.signAndSubmit(`Deposit ${value} ${vault.asset}`);
       });
+      if (completed?.state !== 'confirmed') return;
       setMessage(`Deposited ${value} ${vault.asset}`);
       setAmount('');
       onSuccess?.();
