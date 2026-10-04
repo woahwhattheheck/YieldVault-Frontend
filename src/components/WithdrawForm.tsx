@@ -49,12 +49,13 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     vault.totalShares,
   );
   const touched = amount !== '';
+  const pendingWithdraw = apiError?.kind === API_ERROR_KIND.PENDING;
 
   const handleMax = () => setAmount(String(deposited));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || submitting || pendingWithdraw) return;
     setSubmitting(true);
     setMessage(null);
     setApiError(null);
@@ -68,7 +69,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
             message: adapted.message || 'Transaction update',
             code: adapted.status === 'failed' ? 'TRANSACTION_FAILED' : 'TRANSACTION_PENDING',
             requestId: adapted.tx.txHash,
-            retryable: adapted.kind === API_ERROR_KIND.PENDING,
+            retryable: false,
             status: adapted.kind === API_ERROR_KIND.TERMINAL ? 422 : 202,
           });
           return;
@@ -101,12 +102,12 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
           id="withdraw-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || submitting || pendingWithdraw}
           placeholder="0.00"
           min="0"
           step="any"
         />
-        <button type="button" className="max-btn" onClick={handleMax}>
+        <button type="button" className="max-btn" onClick={handleMax} disabled={pendingWithdraw}>
           MAX
         </button>
       </div>
@@ -126,7 +127,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
         type="submit"
         variant="secondary"
         loading={submitting}
-        disabled={!isConnected || !valid}
+        disabled={!isConnected || !valid || pendingWithdraw}
       >
         {isConnected ? 'Withdraw' : 'Connect wallet to withdraw'}
       </Button>
