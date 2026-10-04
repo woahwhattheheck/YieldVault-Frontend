@@ -6,12 +6,12 @@ import WithdrawForm from '../../src/components/WithdrawForm';
 import * as vaultService from '../../src/services/vault.js';
 import * as walletService from '../../src/services/wallet.js';
 
-const wallet = vi.hoisted(() => ({ connected: true }));
+const wallet = vi.hoisted(() => ({ connected: true, balance: 1000 }));
 vi.mock('../../src/hooks/useWallet.js', () => ({
-  useWallet: () => ({ isConnected: wallet.connected, balanceOf: () => 1000 }),
+  useWallet: () => ({ isConnected: wallet.connected, balanceOf: () => wallet.balance }),
 }));
 vi.mock('../../src/hooks/usePositions.js', () => ({
-  usePositions: () => ({ positions: [{ vaultId: 'admission-vault', value: 1000 }] }),
+  usePositions: () => ({ positions: [{ vaultId: 'admission-vault', value: wallet.balance }] }),
 }));
 vi.mock('../../src/services/vault.js', () => ({ deposit: vi.fn(), withdraw: vi.fn() }));
 vi.mock('../../src/services/wallet.js', () => ({ signAndSubmit: vi.fn() }));
@@ -30,6 +30,7 @@ const forms = [
 
 beforeEach(() => {
   wallet.connected = true;
+  wallet.balance = 1000;
   vi.resetAllMocks();
   vi.mocked(vaultService.deposit).mockResolvedValue({});
   vi.mocked(vaultService.withdraw).mockResolvedValue({});
@@ -93,5 +94,28 @@ describe('amount form submission admission', () => {
     expect(operation).toHaveBeenCalledTimes(2);
     expect(walletService.signAndSubmit).toHaveBeenCalledExactlyOnceWith(`${label} 1.25 USDC`);
     expect(onSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(forms)('$label MAX canonicalizes the smallest supported balance', async ({ Form, operation, label }) => {
+    wallet.balance = 0.0000001;
+    render(<Form vault={vault} />);
+    fireEvent.click(screen.getByRole('button', { name: 'MAX' }));
+    expect(screen.getByRole('textbox')).toHaveValue('0,0000001');
+    expect(screen.getByRole('button', { name: label })).toBeEnabled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: label })); });
+    expect(operation).toHaveBeenCalledExactlyOnceWith('admission-vault', 0.0000001);
+    expect(walletService.signAndSubmit).toHaveBeenCalledExactlyOnceWith(`${label} 0.0000001 USDC`);
+  });
+
+  it.each(forms)('$label MAX does not round an unsupported balance into admission', async ({ Form, operation, label }) => {
+    wallet.balance = 0.00000001;
+    render(<Form vault={vault} />);
+    fireEvent.click(screen.getByRole('button', { name: 'MAX' }));
+    const input = screen.getByRole('textbox');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: label })).toBeDisabled();
+    await act(async () => { fireEvent.submit(input.closest('form')!); });
+    expect(operation).not.toHaveBeenCalled();
+    expect(walletService.signAndSubmit).not.toHaveBeenCalled();
   });
 });

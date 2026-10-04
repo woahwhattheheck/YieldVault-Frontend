@@ -1,4 +1,4 @@
-name: Validate amount form admission
+name: Validate amount form MAX
 on:
   push:
     branches: [validation/amount-form-admission-20261004]
@@ -14,7 +14,7 @@ jobs:
           path: control
       - uses: actions/checkout@v4
         with:
-          ref: 7111df28e7de1a8f9e4173dcbc602c625e5f550c
+          ref: 7534c1706b5d7f721d26184e882c23845c491454
           path: app
       - uses: actions/setup-node@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           npm install --no-audit --no-fund 2>&1 | tee ../evidence/install.log
           npm ls react react-dom vitest vite jsdom @testing-library/react > ../evidence/dependencies.txt
           cp package-lock.json ../evidence/resolved-package-lock.json
-      - name: Compare the original and repaired mounted forms
+      - name: Compare MAX handling and retain submission admission
         working-directory: app
         shell: bash
         run: |
@@ -44,8 +44,8 @@ jobs:
           python3 - <<'PY'
           import json
           d = json.load(open('../evidence/before.json'))
-          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (2, 4, 0), d
-          print('BASELINE: 2 passed, 4 reproduced failures, 0 pending')
+          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (8, 2, 0), d
+          print('BASELINE: 8 passed, 2 MAX failures, 0 pending')
           PY
           python3 ../control/patch_forms.py | tee ../evidence/source-blobs.json
           cp src/components/DepositForm.tsx src/components/WithdrawForm.tsx ../evidence/after/
@@ -55,13 +55,13 @@ jobs:
           python3 - <<'PY'
           import json
           d = json.load(open('../evidence/after.json'))
-          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (6, 0, 0), d
-          print('CANDIDATE: 6 passed, 0 failed, 0 pending')
+          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (10, 0, 0), d
+          print('CANDIDATE: 10 passed, 0 failed, 0 pending')
           PY
           git diff -- src/components/DepositForm.tsx src/components/WithdrawForm.tsx > ../evidence/source.patch
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: amount-form-admission
+          name: amount-form-max
           path: evidence
           retention-days: 30
