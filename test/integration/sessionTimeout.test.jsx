@@ -667,4 +667,60 @@ describe('session timeout integration', () => {
     });
   });
 
+
+  describe('remote renewal never authenticates an expired tab', () => {
+    async function deliverRenewal(transport, remoteSession) {
+      if (transport === 'storage') {
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: SESSION_STORAGE_KEY,
+          newValue: JSON.stringify(remoteSession),
+        }));
+      } else {
+        const channel = new BroadcastChannel('yieldvault:session');
+        channel.postMessage({ type: 'renewed', session: remoteSession, at: Date.now() });
+        channel.close();
+      }
+      // Let the maintained BroadcastChannel fixture deliver its message.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    it.each(['storage', 'channel'])('rejects %s renewal after wall-clock expiry', async (transport) => {
+      const { result } = renderHook(() => useAppContext(), { wrapper });
+      await act(async () => { await result.current.connect(); });
+      const local = result.current.session;
+      const renewed = { ...local, version: local.version + 1, expiresAt: local.expiresAt + 60000 };
+      cachePositions([{ vaultId: 'v1', value: 123 }]);
+      writeSafeDraft(DEPOSIT_DRAFT_KEY, '42');
+      // A suspended tab can receive the renewal before its queued expiry timer.
+      vi.spyOn(Date, 'now').mockReturnValue(local.expiresAt);
+      await act(async () => { await deliverRenewal(transport, renewed); });
+      let authorized;
+      await act(async () => { authorized = await result.current.ensureSessionActive(); });
+      console.log('REMOTE_RENEWAL_OBSERVATION', JSON.stringify({
+        transport, authorized: authorized !== null,
+        expiresAt: result.current.session?.expiresAt ?? null,
+        mutationsAllowed: result.current.mutationsAllowed,
+      }));
+      expect(authorized).toBeNull();
+      expect(result.current.sessionExpired).toBe(true);
+      expect(result.current.mutationsAllowed).toBe(false);
+      expect(result.current.session).toBeNull();
+      expect(result.current.balances).toEqual({});
+      expect(sessionStorage.getItem(POSITIONS_CACHE_KEY)).toBeNull();
+      expect(readSafeDraft(DEPOSIT_DRAFT_KEY)).toBe('42');
+      expect(walletService.connect).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['storage', 'channel'])('keeps %s renewal for an active same-address session', async (transport) => {
+      const { result } = renderHook(() => useAppContext(), { wrapper });
+      await act(async () => { await result.current.connect(); });
+      const local = result.current.session;
+      const renewed = { ...local, version: local.version + 1, expiresAt: local.expiresAt + 60000 };
+      await act(async () => { await deliverRenewal(transport, renewed); });
+      expect(result.current.session).toEqual(renewed);
+      expect(result.current.mutationsAllowed).toBe(true);
+      expect(walletService.connect).toHaveBeenCalledTimes(1);
+    });
+  });
+
 });

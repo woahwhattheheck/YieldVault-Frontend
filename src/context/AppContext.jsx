@@ -271,7 +271,11 @@ export function AppProvider({ children }) {
           return;
         }
         if (type === 'renewed' && remoteSession && !isSessionExpired(remoteSession)) {
-          if (sessionRef.current?.address === remoteSession.address) {
+          // Renewal is not authentication: a suspended tab may already
+          // have expired even though its scheduled expiry callback is pending.
+          if (sessionRef.current?.address === remoteSession.address &&
+              !isSessionExpired(sessionRef.current)) {
+            sessionRef.current = remoteSession;
             setSession(remoteSession);
             writeSession(remoteSession);
           }
