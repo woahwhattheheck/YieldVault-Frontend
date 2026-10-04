@@ -15,7 +15,7 @@ jobs:
     env:
       SOURCE_SHA: bff2a429c665b29741f05331830f6c435b9af118
       BASELINE_SHA: d200655d0aa3c50bf3570abe08f7b051dc0bb10c
-      RESULTS_DIR: ${{ runner.temp }}/yv268-shared-reads
+      RESULTS_DIR: /tmp/yv268-shared-reads
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,6 +99,6 @@ jobs:
         if: always()
         with:
           name: yv268-shared-reads-bff2a429
-          path: ${{ runner.temp }}/yv268-shared-reads
+          path: /tmp/yv268-shared-reads
           if-no-files-found: error
           retention-days: 3
