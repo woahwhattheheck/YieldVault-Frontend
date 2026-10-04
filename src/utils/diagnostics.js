@@ -342,21 +342,45 @@ export function createDependencyError(message, status) {
  * @returns {Error}
  */
 function normalizeToError(value) {
-  if (value instanceof Error) return value;
   if (typeof value === 'string') return new Error(value);
-  if (value && typeof value === 'object' && 'message' in value) {
-    const err = new Error(String(/** @type {{ message: unknown }} */ (value).message));
-    if ('code' in value) {
-      /** @type {{ code?: unknown }} */ (err).code = /** @type {{ code?: unknown }} */ (
-        value
-      ).code;
+  if (value && (typeof value === 'object' || typeof value === 'function')) {
+    const read = (key) => {
+      try {
+        if (!(key in value)) return undefined;
+        return value[key];
+      } catch {
+        return undefined;
+      }
+    };
+    const message = read('message');
+    const code = read('code');
+    const status = read('status');
+    const statusCode = read('statusCode');
+    let isError = false;
+    try {
+      isError = value instanceof Error;
+    } catch {
+      // Treat hostile proxies as ordinary error-like values.
     }
-    if ('status' in value) {
-      /** @type {{ status?: unknown }} */ (err).status = /** @type {{ status?: unknown }} */ (
-        value
-      ).status;
+    if (isError || message !== undefined || code !== undefined || status !== undefined || statusCode !== undefined) {
+      let text = 'Unknown error';
+      if (message != null) {
+        try {
+          text = String(message);
+        } catch {
+          text = 'Unknown error';
+        }
+      }
+      const err = new Error(text);
+      const name = read('name');
+      const stack = read('stack');
+      if (typeof name === 'string' && name) err.name = name;
+      if (code !== undefined) /** @type {{ code?: unknown }} */ (err).code = code;
+      if (status !== undefined) /** @type {{ status?: unknown }} */ (err).status = status;
+      else if (statusCode !== undefined) /** @type {{ statusCode?: unknown }} */ (err).statusCode = statusCode;
+      if (typeof stack === 'string') err.stack = stack;
+      return err;
     }
-    return err;
   }
   return new Error('Unknown error');
 }
