@@ -1,0 +1,47 @@
+name: YieldVault pending transaction recovery
+on:
+  push:
+    branches: [validation/yv265-recovery-38ec-20261004]
+permissions:
+  contents: write
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: woahwhattheheck/YieldVault-Frontend
+          ref: cff7616156d3942651c0695dccd14943c7af176b
+          path: subject
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: subject/package-lock.json
+      - name: Install locked existing dependencies
+        working-directory: subject
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Reproduce and repair only pending-recovery behavior
+        run: python controller/repair.py subject evidence
+      - name: Retain tested source on a candidate ref only
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import base64, os, pathlib, subprocess
+          sha=pathlib.Path('evidence/candidate.txt').read_text().strip()
+          env=dict(os.environ, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='http.https://github.com/.extraheader')
+          env['GIT_CONFIG_VALUE_0']='AUTHORIZATION: basic '+base64.b64encode(('x-access-token:'+os.environ['GH_TOKEN']).encode()).decode()
+          subprocess.run(['git','push','https://github.com/woahwhattheheck/YieldVault-Frontend.git',sha+':refs/heads/candidate/yv265-recovery-38ec-20261004'],cwd='subject',env=env,check=True)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yv265-recovery-38ec-evidence
+          path: evidence
+          retention-days: 14
