@@ -10,7 +10,7 @@
  * Warnings (high/moderate/low, UNKNOWN licenses) print to stderr but do not fail.
  */
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEPENDENCY_POLICY,
@@ -19,9 +19,23 @@ import {
 
 function collectPackageLicenses(nodeModulesDir) {
   const findings = [];
+  const visited = new Set();
   if (!existsSync(nodeModulesDir)) return findings;
 
   function considerPkg(pkgDir) {
+    let realDir;
+    try {
+      realDir = realpathSync(pkgDir);
+    } catch {
+      return;
+    }
+    if (visited.has(realDir)) return;
+    visited.add(realDir);
+
+    // npm can retain transitive dependencies below ordinary or scoped packages.
+    // Follow linked packages once, including cycles and shared workspace links.
+    walk(join(pkgDir, 'node_modules'));
+
     const manifestPath = join(pkgDir, 'package.json');
     if (!existsSync(manifestPath)) return;
     let manifest;
@@ -90,9 +104,6 @@ function collectPackageLicenses(nodeModulesDir) {
       }
 
       considerPkg(full);
-      // Do not descend into nested node_modules of each package for license —
-      // npm hoists; nested copies are rare and noisy. Production tree is enough
-      // via top-level + scoped packages under node_modules.
     }
   }
 

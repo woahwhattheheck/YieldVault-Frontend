@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -102,9 +102,10 @@ describe('dependency audit execution', () => {
     },
   });
 
-  function runChecker(auditResult) {
+  function runChecker(auditResult, setup = () => {}) {
     const dir = mkdtempSync(join(tmpdir(), 'yieldvault-audit-'));
     try {
+      setup(dir);
       const preload = join(dir, 'audit-result.cjs');
       // Run the complete checker with a controlled npm process result, so
       // registry availability and today's advisories cannot change this check.
@@ -116,6 +117,7 @@ describe('dependency audit execution', () => {
       return spawnSync(process.execPath, ['--require', preload, checker], {
         cwd: dir,
         encoding: 'utf8',
+        timeout: 5000,
       });
     } finally {
       rmSync(dir, {recursive: true, force: true});
@@ -160,5 +162,54 @@ describe('dependency audit execution', () => {
     expect(result.status).toBe(expected);
     if (severity === 'high') expect(result.stderr).toContain('WARN high');
     if (severity === 'critical') expect(result.stderr).toContain('FAIL');
+  });
+
+  function installPackage(dir, path, license) {
+    const pkgDir = join(dir, 'node_modules', path);
+    mkdirSync(pkgDir, {recursive: true});
+    writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+      name: path.split('/node_modules/').at(-1), version: '1.0.0', license,
+    }));
+    return pkgDir;
+  }
+
+  const cleanAudit = {status: 0, stdout: JSON.stringify(report())};
+
+  it.each([
+    ['parent', 'child'],
+    ['@scope/parent', '@scope/child'],
+  ])('rejects a disallowed nested license in %s', (parent, child) => {
+    const result = runChecker(cleanAudit, (dir) => {
+      installPackage(dir, parent, 'MIT');
+      installPackage(dir, `${parent}/node_modules/${child}`, 'GPL-3.0');
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`${child}@1.0.0: GPL-3.0`);
+    expect(result.stderr).toContain('1 package(s) with disallowed licenses');
+  });
+
+  it('scans multiple dependency levels and preserves allowed and UNKNOWN policy', () => {
+    const result = runChecker(cleanAudit, (dir) => {
+      installPackage(dir, 'parent', 'MIT');
+      installPackage(dir, 'parent/node_modules/child', 'Apache-2.0');
+      installPackage(dir, 'parent/node_modules/child/node_modules/leaf', undefined);
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('3 packages scanned, no disallowed licenses');
+    expect(result.stderr).toContain('WARN UNKNOWN license — leaf@1.0.0');
+  });
+
+  it('scans linked packages once and terminates on a dependency cycle', () => {
+    const result = runChecker(cleanAudit, (dir) => {
+      const parent = installPackage(dir, 'parent', 'MIT');
+      const child = installPackage(dir, 'parent/node_modules/child', undefined);
+      symlinkSync(parent, join(dir, 'node_modules/alias'), 'junction');
+      mkdirSync(join(child, 'node_modules'));
+      symlinkSync(parent, join(child, 'node_modules/back'), 'junction');
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('2 packages scanned, no disallowed licenses');
+    expect(result.stderr.match(/WARN UNKNOWN license/g)).toHaveLength(1);
   });
 });
