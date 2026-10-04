@@ -27,6 +27,7 @@ export function createPositionCache() {
   /** @type {Map<string, { generation: number, data: unknown }>} */
   const entries = new Map();
   const listeners = new Map();
+  const pending = new Map();
   let globalGeneration = 0;
 
   function notify(key, event) {
@@ -120,9 +121,56 @@ export function createPositionCache() {
       return generation;
     },
 
+    /** Whether the current generation already has an unsettled request. */
+    hasInFlight(key) {
+      const request = pending.get(key);
+      return !!request && entries.get(key)?.generation === request.generation;
+    },
+
+    /**
+     * Share automatic reads for one current generation, never settled results.
+     * Explicit reloads pass share:false to supersede any earlier request.
+     * Each still-mounted consumer may commit; only the first publishes data.
+     */
+    startFetch(key, loader, { share = true } = {}) {
+      if (share && this.hasInFlight(key)) return pending.get(key);
+      const generation = this.beginFetch(key);
+      let resolveRequest;
+      let rejectRequest;
+      let published = false;
+      const promise = new Promise((resolve, reject) => {
+        resolveRequest = resolve;
+        rejectRequest = reject;
+      });
+      const request = {
+        generation,
+        promise: promise.finally(() => {
+          if (pending.get(key) === request) pending.delete(key);
+        }),
+        commit(data) {
+          if (entries.get(key)?.generation !== generation) return false;
+          if (!published) {
+            published = true;
+            entries.set(key, { generation, data });
+            notify(key, { type: 'data', data });
+          }
+          return true;
+        },
+      };
+      pending.set(key, request);
+      // Preserve synchronous loader invocation and convert throws to rejections.
+      try {
+        resolveRequest(loader());
+      } catch (error) {
+        rejectRequest(error);
+      }
+      return request;
+    },
+
     clear() {
       entries.clear();
-      globalGeneration = 0;
+      pending.clear();
+      // Tokens must not be reused while a cleared request can still settle.
     },
 
     get size() {

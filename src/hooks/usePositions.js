@@ -55,7 +55,7 @@ export function usePositions() {
     positionCache.invalidate(queryKey);
   }, [queryKey]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (sharePending = false) => {
     // Retired callers must not allocate a generation or consume the current
     // scope's scheduled refresh, including after this consumer unmounts.
     if (activeLifecycle.current !== lifecycle) return;
@@ -70,18 +70,21 @@ export function usePositions() {
       return;
     }
 
-    const generation = positionCache.beginFetch(queryKey);
+    const request = positionCache.startFetch(queryKey, () => vaultService.getPositions(), {
+      share: sharePending === true,
+    });
+    const { generation } = request;
     inFlightGen.current = generation;
     setLoading(true);
     setError(null);
 
     try {
-      const data = await vaultService.getPositions();
+      const data = await request.promise;
       // Drop obsolete responses — a newer fetch or invalidation won the race.
       if (activeLifecycle.current !== lifecycle || inFlightGen.current !== generation) {
         return;
       }
-      const accepted = positionCache.setIfCurrent(queryKey, data, generation);
+      const accepted = request.commit(data);
       if (!accepted) {
         return;
       }
@@ -117,8 +120,12 @@ export function usePositions() {
       setLoading(false);
       return undefined;
     }
-    positionCache.invalidateScope({ actor: address, network });
-    load();
+    // A second view may join this scope's current read. Once it settles,
+    // mounting again still invalidates and fetches; no freshness TTL is added.
+    if (!positionCache.hasInFlight(queryKey)) {
+      positionCache.invalidateScope({ actor: address, network });
+    }
+    load(true);
     return () => {
       inFlightGen.current = -1;
     };
@@ -138,7 +145,7 @@ export function usePositions() {
         setLastUpdated(null);
         pendingAutoReload.current = true;
         queueMicrotask(() => {
-          if (pendingAutoReload.current) void load();
+          if (pendingAutoReload.current) void load(true);
         });
       } else if (event.type === 'data') {
         setPositions(event.data);
