@@ -46,6 +46,28 @@ describe('apiAdapter', () => {
     }
   });
 
+  it.each([
+    [400, true, API_ERROR_KIND.VALIDATION, false],
+    [422, true, API_ERROR_KIND.VALIDATION, false],
+    [401, true, API_ERROR_KIND.AUTHORIZATION, false],
+    [403, true, API_ERROR_KIND.AUTHORIZATION, false],
+    [503, false, API_ERROR_KIND.PROVIDER, false],
+    [504, false, API_ERROR_KIND.PROVIDER, false],
+  ])(
+    'keeps HTTP status %s authoritative over retryable=%s',
+    (status, retryableHint, expectedKind, expectedRetryable) => {
+      const payload = structuredClone(providerFailure);
+      delete payload.error.code;
+      payload.error.status = status;
+      payload.error.details = { retryable: retryableHint };
+
+      expect(adaptErrorPayload(payload)).toMatchObject({
+        kind: expectedKind,
+        retryable: expectedRetryable,
+      });
+    },
+  );
+
   it('maps validation / authorization / provider / terminal fixtures to UI kinds', () => {
     expect(adaptErrorPayload(validationError).kind).toBe(API_ERROR_KIND.VALIDATION);
     expect(adaptErrorPayload(authorizationError).kind).toBe(API_ERROR_KIND.AUTHORIZATION);
