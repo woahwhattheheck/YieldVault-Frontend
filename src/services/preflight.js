@@ -164,6 +164,13 @@ export async function runPreflight(input, opts = {}) {
 
   if (payload.kind === 'deposit') {
     const balance = Number(input.balance ?? 0);
+    if (!Number.isFinite(balance)) {
+      return rejected(
+        base,
+        PREFLIGHT_CODE.MISSING_CONTEXT,
+        'The wallet balance is unavailable. Refresh it before signing.',
+      );
+    }
     if (amountNum > balance) {
       return rejected(
         base,
@@ -175,6 +182,13 @@ export async function runPreflight(input, opts = {}) {
 
   if (payload.kind === 'withdraw') {
     const position = Number(input.position ?? 0);
+    if (!Number.isFinite(position)) {
+      return rejected(
+        base,
+        PREFLIGHT_CODE.MISSING_CONTEXT,
+        'The position balance is unavailable. Refresh it before signing.',
+      );
+    }
     if (amountNum > position) {
       return rejected(
         base,
