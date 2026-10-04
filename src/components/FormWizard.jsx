@@ -294,7 +294,7 @@ export default function FormWizard({
             className="btn btn-ghost wizard-nav-back"
             onClick={goBack}
             disabled={submitting}
-            aria-label="Go to previous step"
+            aria-label="Back — go to previous step"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <polyline points="15 18 9 12 15 6" />
@@ -323,7 +323,7 @@ export default function FormWizard({
               onClick={goNext}
               disabled={submitting}
               aria-disabled={submitting ? 'true' : undefined}
-              aria-label={`Continue to step ${currentStep + 2} of ${totalSteps}`}
+              aria-label={`Next — continue to step ${currentStep + 2} of ${totalSteps}`}
             >
               Next
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
