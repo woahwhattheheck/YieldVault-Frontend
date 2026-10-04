@@ -185,7 +185,19 @@ export default function WithdrawWizard({ vault, onSuccess }) {
   }
 
   // ── Confirm/Success step ──
-  function ConfirmStep() {
+  function ConfirmStep({ isSubmitting }) {
+    if (!receipt && !isSubmitting) {
+      return (
+        <div className="wizard-success">
+          <span className="wizard-success-icon" aria-hidden="true">✅</span>
+          <div className="wizard-success-title">Ready to withdraw</div>
+          <div className="wizard-success-desc">
+            Activate Confirm Withdrawal to submit this transaction.
+          </div>
+        </div>
+      );
+    }
+
     if (!receipt) {
       return (
         <div className="wizard-success" role="status" aria-live="polite" aria-busy="true">
