@@ -75,6 +75,20 @@ describe('WithdrawWizard accessibility', () => {
     expect(previewRow).toHaveAttribute('role', 'status');
   });
 
+  it('does not announce processing before the user confirms', () => {
+    render(<WithdrawWizard vault={vault} />);
+
+    fireEvent.change(document.getElementById('wizard-withdraw-amount'), { target: { value: '25' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to step 2/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue to step 3/i }));
+
+    const ready = screen.getByText(/Ready to withdraw/i).closest('.wizard-success');
+    expect(ready).not.toHaveAttribute('role');
+    expect(ready).not.toHaveAttribute('aria-busy');
+    expect(screen.queryByText(/Processing withdrawal/i)).not.toBeInTheDocument();
+    expect(vaultService.withdraw).not.toHaveBeenCalled();
+  });
+
   it('completes the withdraw flow keyboard-only through Confirm', async () => {
     render(<WithdrawWizard vault={vault} />);
 
