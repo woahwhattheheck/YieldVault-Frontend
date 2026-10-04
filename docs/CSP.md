@@ -90,8 +90,12 @@ lockfile, or document an allowlist change).
 
 ## Rollout notes
 
-1. Merge emits hosting header files — confirm your host honors `_headers` or
-   `vercel.json`.
+1. After changing `security/policy.mjs`, run `npm run security:emit-headers`
+   from the repository root before validation, and commit both `public/_headers`
+   and `vercel.json` with the policy change. `npm run build` also regenerates
+   them through `prebuild`, but CI runs `npm test` (including header-sync checks)
+   before the build, so the committed files must already match the policy.
+   Before deploying, confirm your host honors `public/_headers` or `vercel.json`.
 2. After deploy, curl the production origin and confirm `Content-Security-Policy`
    matches `security/policy.mjs`.
 3. If a new wallet provider requires an origin, add it to `WALLET_CONNECT_ORIGINS`
