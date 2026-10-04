@@ -1,0 +1,104 @@
+name: Isolated shared-position acceptance
+
+on:
+  push:
+    branches: [validate/yv268-shared-reads-d520-20261004]
+    paths: [.github/workflows/yv268-shared-reads.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  positions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: bff2a429c665b29741f05331830f6c435b9af118
+      BASELINE_SHA: d200655d0aa3c50bf3570abe08f7b051dc0bb10c
+      RESULTS_DIR: ${{ runner.temp }}/yv268-shared-reads
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: bff2a429c665b29741f05331830f6c435b9af118
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Record exact execution source
+        shell: bash
+        run: |
+          mkdir -p "$RESULTS_DIR"
+          node --version > "$RESULTS_DIR/runtime.txt"
+          npm --version >> "$RESULTS_DIR/runtime.txt"
+          git rev-parse HEAD HEAD^{tree} > "$RESULTS_DIR/source.txt"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          expected = {
+            'src/utils/positionCache.js': 'e5995f67a797f9a35400fa63384cba6cd6e5660b',
+            'src/hooks/usePositions.js': '85f97fe746ee9e8ee4c9761e97688d6edd67c12d',
+            'test/utils/positionCache.test.js': 'd3eb24a6ca2eb1510f5254db3c4f9e0cc1dfaffb',
+            'test/hooks/usePositions.stale.test.jsx': '3403fd7bab12a4d46fb5f5c739d683d081e85d95',
+            'test/hooks/usePositions.shared.test.jsx': '14c37bd18074bb70c8a7e0fab3567989169260fa',
+          }
+          for name, wanted in expected.items():
+              data = pathlib.Path(name).read_bytes()
+              actual = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+              assert actual == wanted, (name, actual, wanted)
+          pathlib.Path(os.environ['RESULTS_DIR'], 'expected-blobs.json').write_text(json.dumps(expected, indent=2))
+          PY
+      - name: Install unchanged canonical dependencies
+        shell: bash
+        run: npm ci --no-audit --no-fund 2>&1 | tee "$RESULTS_DIR/install.log"
+      - name: Observe the two mounted-view failures on the previous source
+        shell: bash
+        run: |
+          git show "$BASELINE_SHA:src/utils/positionCache.js" > src/utils/positionCache.js
+          git show "$BASELINE_SHA:src/hooks/usePositions.js" > src/hooks/usePositions.js
+          set +e
+          npm test -- test/hooks/usePositions.shared.test.jsx --reporter=verbose --reporter=json --outputFile.json="$RESULTS_DIR/baseline.json" --maxWorkers=1 2>&1 | tee "$RESULTS_DIR/baseline.log"
+          code=${PIPESTATUS[0]}
+          set -e
+          git restore --source "$SOURCE_SHA" -- src/utils/positionCache.js src/hooks/usePositions.js
+          echo "$code" > "$RESULTS_DIR/baseline-exit.txt"
+          test "$code" -eq 1
+      - name: Run the existing package test selection on the candidate
+        shell: bash
+        run: npm test -- --reporter=verbose --reporter=json --outputFile.json="$RESULTS_DIR/candidate.json" --maxWorkers=2 2>&1 | tee "$RESULTS_DIR/candidate.log"
+      - name: Build the production application
+        shell: bash
+        run: npm run build 2>&1 | tee "$RESULTS_DIR/build.log"
+      - name: Retain source and result summary
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "$RESULTS_DIR"
+          git diff --name-only > "$RESULTS_DIR/changed-tracked-paths.txt"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          root = pathlib.Path(os.environ['RESULTS_DIR'])
+          expected = json.loads((root / 'expected-blobs.json').read_text())
+          for name, wanted in expected.items():
+              data = pathlib.Path(name).read_bytes()
+              actual = hashlib.sha1(f'blob {len(data)}\0'.encode() + data).hexdigest()
+              assert actual == wanted, (name, actual, wanted)
+          baseline = json.loads((root / 'baseline.json').read_text())
+          candidate = json.loads((root / 'candidate.json').read_text())
+          fields = ['numTotalTests', 'numPassedTests', 'numFailedTests', 'numPendingTests', 'numTodoTests', 'success']
+          summary = {'source': os.environ['SOURCE_SHA'], 'baseline': {key: baseline.get(key) for key in fields}, 'candidate': {key: candidate.get(key) for key in fields}, 'five_source_blobs_unchanged': True}
+          (root / 'summary.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+          assert baseline['numTotalTests'] == 2 and baseline['numFailedTests'] == 2
+          assert candidate['numTotalTests'] > 0 and candidate['success']
+          assert candidate['numPassedTests'] == candidate['numTotalTests']
+          assert candidate['numFailedTests'] == candidate['numPendingTests'] == candidate.get('numTodoTests', 0) == 0
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yv268-shared-reads-bff2a429
+          path: ${{ runner.temp }}/yv268-shared-reads
+          if-no-files-found: error
+          retention-days: 3
