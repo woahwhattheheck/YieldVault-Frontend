@@ -1,0 +1,67 @@
+name: Validate amount form admission
+on:
+  push:
+    branches: [validation/amount-form-admission-20261004]
+permissions:
+  contents: read
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: control
+      - uses: actions/checkout@v4
+        with:
+          ref: 7111df28e7de1a8f9e4173dcbc602c625e5f550c
+          path: app
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install using the existing CI command
+        working-directory: app
+        run: |
+          mkdir -p ../evidence/before ../evidence/after
+          node --version | tee ../evidence/runtime.txt
+          npm --version | tee -a ../evidence/runtime.txt
+          npm install --no-audit --no-fund 2>&1 | tee ../evidence/install.log
+          npm ls react react-dom vitest vite jsdom @testing-library/react > ../evidence/dependencies.txt
+          cp package-lock.json ../evidence/resolved-package-lock.json
+      - name: Compare the original and repaired mounted forms
+        working-directory: app
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp ../control/AmountForm.admission.test.tsx test/components/AmountForm.admission.test.tsx
+          cp src/components/DepositForm.tsx src/components/WithdrawForm.tsx ../evidence/before/
+          set +e
+          npm test -- test/components/AmountForm.admission.test.tsx --maxWorkers=1 --reporter=json --outputFile=../evidence/before.json > ../evidence/before.log 2>&1
+          baseline=$?
+          set -e
+          cat ../evidence/before.log
+          test "$baseline" -eq 1
+          python3 - <<'PY'
+          import json
+          d = json.load(open('../evidence/before.json'))
+          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (2, 4, 0), d
+          print('BASELINE: 2 passed, 4 reproduced failures, 0 pending')
+          PY
+          python3 ../control/patch_forms.py | tee ../evidence/source-blobs.json
+          cp src/components/DepositForm.tsx src/components/WithdrawForm.tsx ../evidence/after/
+          cp test/components/AmountForm.admission.test.tsx ../evidence/
+          npm test -- test/components/AmountForm.admission.test.tsx --maxWorkers=1 --reporter=json --outputFile=../evidence/after.json > ../evidence/after.log 2>&1
+          cat ../evidence/after.log
+          python3 - <<'PY'
+          import json
+          d = json.load(open('../evidence/after.json'))
+          assert (d['numPassedTests'], d['numFailedTests'], d['numPendingTests']) == (6, 0, 0), d
+          print('CANDIDATE: 6 passed, 0 failed, 0 pending')
+          PY
+          git diff -- src/components/DepositForm.tsx src/components/WithdrawForm.tsx > ../evidence/source.patch
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: amount-form-admission
+          path: evidence
+          retention-days: 30
