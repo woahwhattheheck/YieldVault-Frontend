@@ -57,7 +57,7 @@ export default function WithdrawWizard({ vault, onSuccess }) {
     {
       id: 'confirm',
       title: 'Confirm',
-      description: 'Transaction submitted',
+      description: 'Ready to submit',
       icon: '✅',
       content: ConfirmStep,
     },
