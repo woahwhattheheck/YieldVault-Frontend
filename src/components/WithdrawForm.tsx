@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
 import { useWallet } from '../hooks/useWallet.js';
@@ -32,6 +32,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const [amount, setAmount] = useState('');
   const [amountError, setAmountError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
@@ -49,7 +50,9 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid || amountError) return;
+    if (!isConnected || !valid || amountError || submissionInFlight.current) return;
+    // A ref closes reentrant submits before React commits the loading state.
+    submissionInFlight.current = true;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -61,6 +64,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : 'Withdraw failed');
     } finally {
+      submissionInFlight.current = false;
       setSubmitting(false);
     }
   };
