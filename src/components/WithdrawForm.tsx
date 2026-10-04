@@ -60,7 +60,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
     setSubmitting(true);
     setMessage(null);
     try {
-      await vaultService.withdraw(vault.id, Number(amount));
+      await vaultService.withdraw(vault.id, amount);
       await walletService.signAndSubmit(`Withdraw ${amount} ${vault.asset}`);
       setMessage(`Withdrew ${amount} ${vault.asset}`);
       setAmount('');
