@@ -118,14 +118,17 @@ export function parseLocaleAmount(input, options = {}) {
   const data = typeof maxFraction === 'number' ? getLocaleData(locale) : null;
   const { decimal, group } = data || readSeparators(new Intl.NumberFormat(locale));
   // Accept this locale's decimal digits, as well as ASCII keyboard input.
-  // Iterate code points: some numbering systems use surrogate-pair glyphs.
   const digits = data?.digits ??
     Array.from(new Intl.NumberFormat(locale, { useGrouping: false }).format(9876543210));
   if (data) data.digits = digits;
-  const localized = Array.from(trimmed, (character) => {
-    const index = digits.indexOf(character);
-    return index < 0 ? character : String(9 - index);
-  }).join('');
+  // ASCII digits need no remapping. Retain Intl construction and the general
+  // path for observable locale/options inputs. Non-ASCII input still iterates
+  // code points because some numbering systems use surrogate-pair glyphs.
+  const localized = data && !/[^\x00-\x7f]/.test(trimmed) ? trimmed :
+    Array.from(trimmed, (character) => {
+      const index = digits.indexOf(character);
+      return index < 0 ? character : String(9 - index);
+    }).join('');
   const parts = localized.split(decimal);
   if (parts.length > 2 || (parts.length === 2 && !/^\d+$/.test(parts[1]))) {
     return { ok: false, error: 'Amount format is invalid' };
