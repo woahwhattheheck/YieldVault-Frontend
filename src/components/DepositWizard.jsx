@@ -182,7 +182,19 @@ export default function DepositWizard({ vault, onSuccess }) {
   }
 
   // ── Confirm/Success step ──
-  function ConfirmStep() {
+  function ConfirmStep({ isSubmitting }) {
+    if (!receipt && !isSubmitting) {
+      return (
+        <div className="wizard-success">
+          <span className="wizard-success-icon" aria-hidden="true">✅</span>
+          <div className="wizard-success-title">Ready to deposit</div>
+          <div className="wizard-success-desc">
+            Activate Confirm Deposit to submit this transaction.
+          </div>
+        </div>
+      );
+    }
+
     if (!receipt) {
       return (
         <div className="wizard-success" role="status" aria-live="polite" aria-busy="true">
