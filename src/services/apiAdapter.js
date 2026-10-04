@@ -36,15 +36,25 @@ export function classifyError(error) {
   if (code === 'AUTHORIZATION_REQUIRED') return API_ERROR_KIND.AUTHORIZATION;
   if (code === 'PROVIDER_UNAVAILABLE') return API_ERROR_KIND.PROVIDER;
   if (code === 'TRANSACTION_FAILED') return API_ERROR_KIND.TERMINAL;
+
+  // HTTP validation / authorization semantics must not be overridden by
+  // untrusted retry hints carried in details.
+  if (error?.status === 400 || error?.status === 422) return API_ERROR_KIND.VALIDATION;
+  if (error?.status === 401 || error?.status === 403) return API_ERROR_KIND.AUTHORIZATION;
+
   if (error?.details && typeof error.details === 'object' && !Array.isArray(error.details)) {
     if (error.details.txStatus === 'pending') return API_ERROR_KIND.PENDING;
     if (error.details.txStatus === 'failed') return API_ERROR_KIND.TERMINAL;
+  }
+
+  // Provider HTTP status remains a provider failure even when the provider
+  // vetoes retry; adaptErrorPayload applies that veto without changing kind.
+  if (error?.status === 503 || error?.status === 504) return API_ERROR_KIND.PROVIDER;
+
+  if (error?.details && typeof error.details === 'object' && !Array.isArray(error.details)) {
     if (error.details.retryable === true) return API_ERROR_KIND.PROVIDER;
     if (error.details.retryable === false) return API_ERROR_KIND.TERMINAL;
   }
-  if (error?.status === 400 || error?.status === 422) return API_ERROR_KIND.VALIDATION;
-  if (error?.status === 401 || error?.status === 403) return API_ERROR_KIND.AUTHORIZATION;
-  if (error?.status === 503 || error?.status === 504) return API_ERROR_KIND.PROVIDER;
   return API_ERROR_KIND.TERMINAL;
 }
 
