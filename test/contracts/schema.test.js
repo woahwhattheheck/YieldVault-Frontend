@@ -111,6 +111,31 @@ describe('v1 API contracts', () => {
     expect(result.errors.some((error) => error.path === '$.positions[0].earnings')).toBe(true);
   });
 
+  it.each([
+    ['depositSuccess', depositSuccess, ['tx', 'txHash'], 128],
+    ['vaultList', vaultList, ['vaults', 0, 'name'], 128],
+    ['errorResponse', validationError, ['error', 'message'], 256],
+  ])('enforces declared string limits in %s', (name, fixture, path, limit) => {
+    const payload = structuredClone(fixture);
+    const parent = path.slice(0, -1).reduce((value, key) => value[key], payload);
+    const key = path[path.length - 1];
+    parent[key] = 'a'.repeat(limit);
+    expect(check(name, payload).valid).toBe(true);
+
+    parent[key] += 'a';
+    const result = check(name, payload);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual([
+      {
+        path: '$' + path.map((part) => typeof part === 'number' ? `[${part}]` : `.${part}`).join(''),
+        message: 'is longer than the maximum length',
+        expected: limit,
+        actual: limit + 1,
+      },
+    ]);
+    expect(() => enforce(name, payload)).toThrow(/does not match contract/);
+  });
+
   it('rejects undocumented response fields', () => {
     const result = check('transactionPage', { ...transactionsPage, debug: true });
     expect(result.valid).toBe(false);

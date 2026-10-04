@@ -55,6 +55,9 @@ function validateNode(value, schema, path, errors) {
   if (schema.minLength !== undefined && typeof value === 'string' && value.length < schema.minLength) {
     addError(errors, path, 'is shorter than the minimum length', schema.minLength, value.length);
   }
+  if (schema.maxLength !== undefined && typeof value === 'string' && value.length > schema.maxLength) {
+    addError(errors, path, 'is longer than the maximum length', schema.maxLength, value.length);
+  }
   if (schema.min !== undefined && typeof value === 'number' && value < schema.min) {
     addError(errors, path, 'is below the minimum', schema.min, value);
   }
