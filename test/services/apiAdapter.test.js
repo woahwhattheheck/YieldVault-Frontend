@@ -61,6 +61,18 @@ describe('apiAdapter', () => {
     });
   });
 
+  it('does not advise retry when the provider explicitly forbids it', () => {
+    const payload = structuredClone(providerFailure);
+    payload.error.details = { retryable: false };
+    const adapted = adaptErrorPayload(payload);
+
+    expect(adapted.kind).toBe(API_ERROR_KIND.PROVIDER);
+    expect(adapted.requestId).toBe(payload.error.requestId);
+    expect(adapted.message).toBe('The transaction provider is unavailable.');
+    expect(adapted).not.toHaveProperty('details');
+    expect(adaptCaughtError(new ContractApiError(payload)).message).toBe(adapted.message);
+  });
+
   it('never leaks raw details arrays or JSON into the UI message', () => {
     const adapted = adaptErrorPayload(validationError);
     expect(adapted.message).not.toMatch(/vaultId is required/);

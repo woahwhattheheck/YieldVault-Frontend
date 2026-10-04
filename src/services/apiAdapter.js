@@ -50,10 +50,20 @@ export function classifyError(error) {
 
 /**
  * Build a UI-safe message. Never embeds raw JSON, stacks, or details arrays.
- * @param {{ code?: string, message?: string }} error
+ * @param {{ code?: string, message?: string, details?: unknown }} error
  * @param {ApiErrorKind} kind
  */
 function safeMessage(error, kind) {
+  const details = error?.details;
+  if (
+    kind === API_ERROR_KIND.PROVIDER &&
+    details &&
+    typeof details === 'object' &&
+    !Array.isArray(details) &&
+    details.retryable === false
+  ) {
+    return 'The transaction provider is unavailable.';
+  }
   if (error?.code && SAFE_MESSAGES[error.code]) return SAFE_MESSAGES[error.code];
   if (kind === API_ERROR_KIND.VALIDATION) return SAFE_MESSAGES.VALIDATION_FAILED;
   if (kind === API_ERROR_KIND.AUTHORIZATION) return SAFE_MESSAGES.AUTHORIZATION_REQUIRED;
