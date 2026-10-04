@@ -52,4 +52,32 @@ describe('positionCache races', () => {
     cache.invalidateScope({ actor: 'A', network: 'testnet' });
     expect(cache.get(keyA).data).toBeUndefined();
   });
+
+  it('clear rejects outstanding writes without repopulating or notifying', () => {
+    const key = positionQueryKey({ actor: 'A', network: 'testnet' });
+    const events = [];
+    const unsubscribe = cache.subscribe(key, (event) => events.push(event));
+    const retired = cache.beginFetch(key);
+
+    cache.clear();
+
+    expect(cache.setIfCurrent(key, [{ id: 'retired' }], retired)).toBe(false);
+    expect(cache.size).toBe(0);
+    expect(cache.get(key)).toBeUndefined();
+    expect(events).toEqual([]);
+    unsubscribe();
+  });
+
+  it('clear never reuses a token that can overwrite a fresh response', () => {
+    const key = positionQueryKey({ actor: 'A', network: 'testnet' });
+    const retired = cache.beginFetch(key);
+    cache.clear();
+    const fresh = cache.beginFetch(key);
+    expect(fresh).toBeGreaterThan(retired);
+    expect(cache.setIfCurrent(key, [{ id: 'fresh' }], fresh)).toBe(true);
+
+    expect(cache.setIfCurrent(key, [{ id: 'retired' }], retired)).toBe(false);
+    expect(cache.get(key).data).toEqual([{ id: 'fresh' }]);
+  });
+
 });

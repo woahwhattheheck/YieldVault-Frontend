@@ -62,7 +62,7 @@ export function createPositionCache() {
      */
     setIfCurrent(key, data, generation) {
       const current = entries.get(key);
-      if (current && current.generation > generation) {
+      if (!current || current.generation !== generation) {
         return false;
       }
       entries.set(key, { generation, data });
@@ -121,8 +121,8 @@ export function createPositionCache() {
     },
 
     clear() {
+      // Keep tokens monotonic so pre-clear responses cannot match later fetches.
       entries.clear();
-      globalGeneration = 0;
     },
 
     get size() {
