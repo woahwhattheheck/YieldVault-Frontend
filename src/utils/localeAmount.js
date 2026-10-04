@@ -8,6 +8,55 @@
  */
 
 const DEFAULT_MAX_FRACTION = 7;
+const CACHE_LIMIT = 32;
+const localeDataCache = new Map();
+const displayFormatterCache = new Map();
+
+function cacheValue(cache, key, value) {
+  // Bound both caches even when callers supply many locales or precisions.
+  if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
+  return value;
+}
+
+function readSeparators(formatter) {
+  const parts = formatter.formatToParts(12345.6);
+  const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.';
+  const group = parts.find((p) => p.type === 'group')?.value ?? ',';
+  return { decimal, group };
+}
+
+function getLocaleData(locale) {
+  // Locale arrays/objects may have observable getters or coercion. Keep their
+  // original Intl construction path, including its validation order.
+  if (typeof locale !== 'string') return null;
+  let data = localeDataCache.get(locale);
+  if (!data) {
+    const formatter = new Intl.NumberFormat(locale);
+    data = cacheValue(localeDataCache, locale, {
+      formatter,
+      ...readSeparators(formatter),
+    });
+  }
+  return data;
+}
+
+function getDisplayFormatter(locale, minFraction, maxFraction, primitiveValue) {
+  // Other Intl-supported inputs still work, but values needing coercion are
+  // not cache keys. In particular, invalid options must retain Intl's errors.
+  const key = primitiveValue && typeof locale === 'string' &&
+    typeof minFraction === 'number' && Number.isFinite(minFraction) &&
+    typeof maxFraction === 'number' && Number.isFinite(maxFraction)
+    ? JSON.stringify([locale, minFraction, maxFraction]) : null;
+  const cached = key === null ? undefined : displayFormatterCache.get(key);
+  if (cached) return cached;
+  const formatter = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: minFraction,
+    maximumFractionDigits: maxFraction,
+    useGrouping: true,
+  });
+  return key === null ? formatter : cacheValue(displayFormatterCache, key, formatter);
+}
 
 /**
  * Resolve decimal / group separators for a locale via Intl.
@@ -15,10 +64,9 @@ const DEFAULT_MAX_FRACTION = 7;
  * @returns {{ decimal: string, group: string }}
  */
 export function getLocaleSeparators(locale = 'en-US') {
-  const parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
-  const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.';
-  const group = parts.find((p) => p.type === 'group')?.value ?? ',';
-  return { decimal, group };
+  const data = getLocaleData(locale);
+  if (data) return { decimal: data.decimal, group: data.group };
+  return readSeparators(new Intl.NumberFormat(locale));
 }
 
 /**
@@ -65,10 +113,13 @@ export function parseLocaleAmount(input, options = {}) {
     return { ok: false, error: 'Amount is required' };
   }
 
-  const { decimal, group } = getLocaleSeparators(locale);
+  const data = typeof maxFraction === 'number' ? getLocaleData(locale) : null;
+  const { decimal, group } = data || readSeparators(new Intl.NumberFormat(locale));
   // Accept this locale's decimal digits, as well as ASCII keyboard input.
   // Iterate code points: some numbering systems use surrogate-pair glyphs.
-  const digits = Array.from(new Intl.NumberFormat(locale, { useGrouping: false }).format(9876543210));
+  const digits = data?.digits ??
+    Array.from(new Intl.NumberFormat(locale, { useGrouping: false }).format(9876543210));
+  if (data) data.digits = digits;
   const localized = Array.from(trimmed, (character) => {
     const index = digits.indexOf(character);
     return index < 0 ? character : String(9 - index);
@@ -90,8 +141,9 @@ export function parseLocaleAmount(input, options = {}) {
   }
   if (groups.length > 1) {
     // The rightmost and preceding groups may differ (e.g. 12,34,567 in hi-IN).
-    const widths = new Intl.NumberFormat(locale).formatToParts(1234567890123)
+    const widths = data?.widths ?? (data?.formatter ?? new Intl.NumberFormat(locale)).formatToParts(1234567890123)
       .filter((part) => part.type === 'integer').map((part) => Array.from(part.value).length);
+    if (data) data.widths = widths;
     const primary = widths[widths.length - 1];
     const secondary = widths[widths.length - 2] ?? primary;
     if (groups[0].length > secondary || groups[groups.length - 1].length !== primary ||
@@ -181,13 +233,11 @@ export function formatLocaleAmount(value, options = {}) {
   const minFraction = options.minFractionDigits ?? 0;
   const num = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(num)) return '';
-  return new Intl.NumberFormat(locale, {
-    minimumFractionDigits: minFraction,
-    maximumFractionDigits: maxFraction,
-    useGrouping: true,
   // Intl accepts exact decimal strings; converting them to Number first
   // would discard supported digits before the configured display rounding.
-  }).format(typeof value === 'string' ? value : num);
+  return getDisplayFormatter(locale, minFraction, maxFraction,
+    typeof value === 'string' || typeof value === 'number')
+    .format(typeof value === 'string' ? value : num);
 }
 
 /**
