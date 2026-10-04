@@ -64,6 +64,7 @@ describe('WithdrawForm contract fixtures', () => {
 
   it('renders pending withdraw fixtures without leaking raw responses', async () => {
     __queueWithdrawResultForTests(withdrawPending);
+    __queueWithdrawResultForTests(withdrawFailed);
     render(<WithdrawForm vault={vault} />);
     fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: /^withdraw$/i }));
@@ -75,6 +76,15 @@ describe('WithdrawForm contract fixtures', () => {
       'tx_fixture_withdraw_001',
     );
     expect(document.body.textContent).not.toContain('GUSER_fixture_001');
+    expect(screen.getByLabelText(/amount/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^max$/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^withdraw$/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+
+    fireEvent.submit(screen.getByTestId('withdraw-form'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(screen.getByTestId('api-error-state')).toHaveAttribute('data-kind', 'pending');
     expect(walletService.signAndSubmit).not.toHaveBeenCalled();
   });
 
