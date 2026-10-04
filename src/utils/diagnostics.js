@@ -85,7 +85,7 @@ export function redactSecrets(value, depth = 0) {
     return {
       name: value.name,
       message: redactString(value.message || ''),
-      code: /** @type {{ code?: unknown }} */ (value).code ?? undefined,
+      code: redactSecrets(/** @type {{ code?: unknown }} */ (value).code, depth + 1),
     };
   }
   if (Array.isArray(value)) {
@@ -94,7 +94,14 @@ export function redactSecrets(value, depth = 0) {
   if (typeof value === 'object') {
     /** @type {Record<string, unknown>} */
     const out = {};
-    for (const [key, nested] of Object.entries(value)) {
+    /** @type {Array<[string, unknown]>} */
+    let entries;
+    try {
+      entries = Object.entries(value);
+    } catch {
+      return REDACTED;
+    }
+    for (const [key, nested] of entries) {
       if (SENSITIVE_KEY_PATTERN.test(key)) {
         out[key] = REDACTED;
       } else {
