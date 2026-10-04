@@ -1,0 +1,33 @@
+name: YV269 exact amount selection
+on:
+  push:
+    branches: [validation/yv269-amount-dbd0-20261004]
+permissions:
+  contents: write
+jobs:
+  amount-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: 3939724e2fbc32c42ad87d532c93525dbfdb7952
+          path: subject
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: subject/package-lock.json
+      - name: Exact utility and mounted input comparison
+        run: python controller/work/validation/yv269-dbd0/check.py subject controller/evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yv269-amount-dbd0
+          path: controller/evidence
+          retention-days: 7
+          if-no-files-found: error
