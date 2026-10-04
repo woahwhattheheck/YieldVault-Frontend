@@ -1,0 +1,33 @@
+name: YV270 finite preflight selection
+on:
+  push:
+    branches: [validation/yv270-preflight-dbd0-20261004]
+permissions:
+  contents: write
+jobs:
+  preflight-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: controller
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: c20bbca63ba7600b219a3157d556c784c521c1e9
+          path: subject
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: subject/package-lock.json
+      - name: Source-pinned service and consumer selection
+        run: python controller/work/validation/yv270-dbd0/check.py subject controller/evidence
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yv270-preflight-dbd0
+          path: controller/evidence
+          retention-days: 7
+          if-no-files-found: error
