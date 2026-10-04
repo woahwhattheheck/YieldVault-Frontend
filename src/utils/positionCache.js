@@ -91,16 +91,20 @@ export function createPositionCache() {
      * @returns {number} number of keys invalidated
      */
     invalidateScope({ actor = null, network = null } = {}) {
-      const prefix = positionQueryKey({ actor, network }).replace(/:\*:\*$/, '');
+      const listKey = positionQueryKey({ actor, network });
+      // Match the complete actor/network prefix, not an actor in a vault/asset.
+      const prefix = listKey.replace(/:\*:\*$/, ':');
       let count = 0;
+      let invalidatedList = false;
       for (const key of [...entries.keys()]) {
-        if (key.startsWith(prefix) || key.includes(`:${actor || 'anon'}:`)) {
+        if (key.startsWith(prefix)) {
           this.invalidate(key);
           count += 1;
+          if (key === listKey) invalidatedList = true;
         }
       }
-      // Always bump a scoped list key so listeners refresh.
-      this.invalidate(positionQueryKey({ actor, network }));
+      // Refresh the list even when absent, but never notify it twice.
+      if (!invalidatedList) this.invalidate(listKey);
       return count;
     },
 

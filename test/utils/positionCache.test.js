@@ -80,4 +80,47 @@ describe('positionCache races', () => {
     expect(cache.get(key).data).toEqual([{ id: 'fresh' }]);
   });
 
+  it('invalidateScope preserves other networks and actor text in other fields', () => {
+    const keys = [
+      positionQueryKey({ actor: 'A', network: 'testnet' }),
+      positionQueryKey({ actor: 'A', network: 'testnet', vaultId: 'vault-1', asset: 'USDC' }),
+      positionQueryKey({ actor: 'A', network: 'mainnet' }),
+      positionQueryKey({ actor: 'A', network: 'testnet-extra' }),
+      positionQueryKey({ actor: 'B', network: 'testnet', vaultId: 'A', asset: 'USDC' }),
+    ];
+    const events = [];
+    keys.forEach((key, index) => {
+      cache.setIfCurrent(key, [index], cache.beginFetch(key));
+      cache.subscribe(key, () => events.push(key));
+    });
+    const unrelated = keys.slice(2).map((key) => cache.get(key));
+
+    expect(cache.invalidateScope({ actor: 'A', network: 'testnet' })).toBe(2);
+
+    expect(events).toEqual(keys.slice(0, 2));
+    expect(cache.get(keys[0]).data).toBeUndefined();
+    expect(cache.get(keys[1]).data).toBeUndefined();
+    keys.slice(2).forEach((key, index) => {
+      expect(cache.get(key)).toBe(unrelated[index]);
+    });
+  });
+
+  it('invalidateScope notifies the list once whether its entry exists or not', () => {
+    for (const includeList of [true, false]) {
+      const scopedCache = createPositionCache();
+      const list = positionQueryKey({ actor: 'A', network: 'testnet' });
+      const detail = positionQueryKey({ actor: 'A', network: 'testnet', vaultId: 'vault-1' });
+      const retired = scopedCache.beginFetch(detail);
+      if (includeList) scopedCache.beginFetch(list);
+      const events = [];
+      scopedCache.subscribe(list, (event) => events.push(event.type));
+
+      expect(scopedCache.invalidateScope({ actor: 'A', network: 'testnet' }))
+        .toBe(includeList ? 2 : 1);
+      expect(events).toEqual(['invalidated']);
+      expect(scopedCache.get(list).data).toBeUndefined();
+      expect(scopedCache.setIfCurrent(detail, ['late'], retired)).toBe(false);
+    }
+  });
+
 });
