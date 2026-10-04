@@ -176,6 +176,26 @@ describe('dependency audit execution', () => {
   const cleanAudit = {status: 0, stdout: JSON.stringify(report())};
 
   it.each([
+    ['GPL-3.0', [], 1],
+    ['GPL-3.0', [{}, ''], 1],
+    ['MIT', [], 0],
+  ])('preserves explicit %s with unusable legacy entries %j', (license, licenses, status) => {
+    const result = runChecker(cleanAudit, (dir) => {
+      const pkgDir = installPackage(dir, 'declared-license', license);
+      writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+        name: 'declared-license', version: '1.0.0', license, licenses,
+      }));
+    });
+    expect(result.status).toBe(status);
+    expect(result.stderr).not.toContain('WARN UNKNOWN license');
+    if (status === 1) {
+      expect(result.stderr).toContain(`declared-license@1.0.0: ${license}`);
+    } else {
+      expect(result.stdout).toContain('1 packages scanned, no disallowed licenses');
+    }
+  });
+
+  it.each([
     ['parent', 'child'],
     ['@scope/parent', '@scope/child'],
   ])('rejects a disallowed nested license in %s', (parent, child) => {

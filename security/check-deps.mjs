@@ -51,10 +51,12 @@ function collectPackageLicenses(nodeModulesDir) {
       license = license.type || JSON.stringify(license);
     }
     if (Array.isArray(manifest.licenses)) {
-      license = manifest.licenses
+      const legacyLicense = manifest.licenses
         .map((l) => (typeof l === 'object' ? l.type : l))
         .filter(Boolean)
         .join(' OR ');
+      // An empty legacy list must not erase an explicit license declaration.
+      if (legacyLicense) license = legacyLicense;
     }
     if (!license) license = 'UNKNOWN';
 
