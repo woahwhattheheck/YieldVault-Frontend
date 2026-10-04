@@ -75,6 +75,20 @@ describe('DepositWizard accessibility', () => {
     expect(document.getElementById('wizard-deposit-amount')).toHaveValue(1000);
   });
 
+  it('does not announce processing before the user confirms', () => {
+    render(<DepositWizard vault={vault} />);
+
+    fireEvent.change(document.getElementById('wizard-deposit-amount'), { target: { value: '50' } });
+    fireEvent.click(screen.getByRole('button', { name: /Continue to step 2/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Continue to step 3/i }));
+
+    const ready = screen.getByText(/Ready to deposit/i).closest('.wizard-success');
+    expect(ready).not.toHaveAttribute('role');
+    expect(ready).not.toHaveAttribute('aria-busy');
+    expect(screen.queryByText(/Processing deposit/i)).not.toBeInTheDocument();
+    expect(vaultService.deposit).not.toHaveBeenCalled();
+  });
+
   it('completes the deposit flow without a pointer (keyboard-operable steps)', async () => {
     const onSuccess = vi.fn();
     render(<DepositWizard vault={vault} onSuccess={onSuccess} />);
