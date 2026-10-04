@@ -93,6 +93,41 @@ describe('DepositForm contract fixtures', () => {
     expect(screen.getByText(/Deposited 10 USDC \(confirmed\)/i)).toBeInTheDocument();
   });
 
+  it.each([
+    ['pending', 'pending'],
+    ['submitted', 'pending'],
+    ['failed', 'terminal'],
+  ])('renders a %s deposit without signing or reporting success', async (status, kind) => {
+    const response = structuredClone(depositSuccess);
+    response.tx.status = status;
+    __queueDepositResultForTests(response);
+    const onSuccess = vi.fn();
+    render(<DepositForm vault={vault} onSuccess={onSuccess} />);
+    fireEvent.change(screen.getByLabelText(/amount/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /^deposit$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('api-error-state')).toHaveAttribute('data-kind', kind);
+    });
+    expect(screen.getByTestId('api-error-state')).toHaveAttribute(
+      'data-code',
+      kind === 'pending' ? 'TRANSACTION_PENDING' : 'TRANSACTION_FAILED',
+    );
+    expect(screen.getByTestId('api-error-correlation')).toHaveTextContent(response.tx.txHash);
+    expect(walletService.signAndSubmit).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Deposited 10 USDC/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/amount/i)).toHaveValue('10');
+    if (kind === 'pending') {
+      expect(screen.getByRole('button', { name: /^deposit$/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /^max$/i })).toBeDisabled();
+      expect(screen.getByLabelText(/amount/i)).toBeDisabled();
+    } else {
+      expect(screen.getByRole('button', { name: /^deposit$/i })).toBeEnabled();
+    }
+  });
+
   it('blocks signing when a response amount exceeds precision in exponent notation', async () => {
     const invalid = structuredClone(depositSuccess);
     invalid.tx.amount = 1e-7;

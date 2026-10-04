@@ -8,7 +8,7 @@ import { previewDeposit } from '../utils/shares.js';
 import { formatAmount } from '../utils/format.js';
 import * as vaultService from '../services/vault.js';
 import * as walletService from '../services/wallet.js';
-import { adaptCaughtError, adaptDepositSuccess } from '../services/apiAdapter.js';
+import { adaptCaughtError, adaptDepositSuccess, API_ERROR_KIND } from '../services/apiAdapter.js';
 
 /**
  * Deposit form for a vault. Validates against wallet balance, previews the
@@ -39,12 +39,13 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const { valid, error } = validateDeposit(amount, balance);
   const sharesOut = previewDeposit(amount as unknown as number, vault.totalAssets, vault.totalShares);
   const touched = amount !== '';
+  const pendingDeposit = apiError?.kind === API_ERROR_KIND.PENDING;
 
   const handleMax = () => setAmount(String(balance));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!valid) return;
+    if (!valid || submitting || pendingDeposit) return;
     setSubmitting(true);
     setMessage(null);
     setApiError(null);
@@ -53,6 +54,20 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       // When the service returns a v1 depositSuccess payload, adapt it.
       if (result && typeof result === 'object' && 'position' in result && 'tx' in result) {
         const adapted = adaptDepositSuccess(result);
+        if (adapted.status !== 'confirmed') {
+          const pending = adapted.status === 'pending' || adapted.status === 'submitted';
+          setApiError({
+            kind: pending ? API_ERROR_KIND.PENDING : API_ERROR_KIND.TERMINAL,
+            message: pending
+              ? 'Your deposit is pending confirmation. Do not submit it again.'
+              : 'The deposit failed. Check its transaction status before trying again.',
+            code: pending ? 'TRANSACTION_PENDING' : 'TRANSACTION_FAILED',
+            requestId: adapted.tx.txHash,
+            retryable: false,
+            status: pending ? 202 : 422,
+          });
+          return;
+        }
         await walletService.signAndSubmit(`Deposit ${amount} ${vault.asset}`);
         setMessage(`Deposited ${amount} ${vault.asset} (${adapted.tx.status})`);
       } else {
@@ -81,12 +96,12 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
           id="deposit-amount"
           value={amount}
           onChange={setAmount}
-          disabled={!isConnected || submitting}
+          disabled={!isConnected || submitting || pendingDeposit}
           placeholder="0.00"
           min="0"
           step="any"
         />
-        <button type="button" className="max-btn" onClick={handleMax}>
+        <button type="button" className="max-btn" onClick={handleMax} disabled={pendingDeposit}>
           MAX
         </button>
       </div>
@@ -102,7 +117,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
       )}
       {message && !apiError && <p className="form-message">{message}</p>}
 
-      <Button type="submit" loading={submitting} disabled={!isConnected || !valid}>
+      <Button type="submit" loading={submitting} disabled={!isConnected || !valid || pendingDeposit}>
         {isConnected ? 'Deposit' : 'Connect wallet to deposit'}
       </Button>
     </form>
