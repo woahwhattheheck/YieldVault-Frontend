@@ -61,6 +61,32 @@ describe('telemetry', () => {
     expect(stored.message).toContain('rpc.example.test/v1');
   });
 
+  it('fails closed when nested Error metadata cannot be inspected', () => {
+    const secret = 'diagnostic-canary-password';
+    const error = new Error('safe');
+    error.code = new Proxy({ token: secret }, {
+      ownKeys() {
+        throw new Error(`blocked ${secret}`);
+      },
+    });
+
+    const stored = reportDiagnostic({
+      correlationId: 'yv-proxy',
+      feature: 'vaults',
+      level: 'feature',
+      error,
+    });
+
+    expect(stored).toBeTruthy();
+    expect(stored.error).toMatchObject({
+      name: 'Error',
+      message: 'safe',
+      code: REDACTED,
+    });
+    expect(JSON.stringify(stored)).not.toContain(secret);
+    expect(JSON.stringify(getTelemetryEvents())).not.toContain(secret);
+  });
+
   it('does not reintroduce raw metadata when dropping an unsafe event', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     try {
