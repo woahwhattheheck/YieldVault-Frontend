@@ -198,17 +198,31 @@ export async function runPreflight(input, opts = {}) {
     }
   }
 
-  // Simulate configured endpoint latency (capped so unit tests stay fast).
-  const latency = Math.min(CONFIG.mockLatency ?? 0, opts.timeoutMs != null ? opts.timeoutMs : 50);
-  await withLatency({ ok: true }, Number.isFinite(latency) ? latency : 0);
-
-  return {
-    ...base,
-    status: PREFLIGHT_STATUS.OK,
-    code: PREFLIGHT_CODE.OK,
-    reason: null,
-    retryable: false,
-  };
+  // Keep the mock response delay independent of the caller's deadline.
+  const latency = Math.min(CONFIG.mockLatency ?? 0, 50);
+  let timeoutId;
+  try {
+    return await Promise.race([
+      withLatency({
+        ...base,
+        status: PREFLIGHT_STATUS.OK,
+        code: PREFLIGHT_CODE.OK,
+        reason: null,
+        retryable: false,
+      }, Number.isFinite(latency) ? latency : 0),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(() => resolve({
+          ...base,
+          status: PREFLIGHT_STATUS.TIMEOUT,
+          code: PREFLIGHT_CODE.PROVIDER_TIMEOUT,
+          reason: 'Simulation timed out. Retry preflight before signing.',
+          retryable: true,
+        }), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /** @deprecated Prefer runPreflight — alias kept for clarity at call sites. */
