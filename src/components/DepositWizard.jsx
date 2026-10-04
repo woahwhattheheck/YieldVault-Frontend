@@ -54,7 +54,7 @@ export default function DepositWizard({ vault, onSuccess }) {
     {
       id: 'confirm',
       title: 'Confirm',
-      description: 'Transaction submitted',
+      description: 'Ready to submit',
       icon: '✅',
       content: ConfirmStep,
     },
