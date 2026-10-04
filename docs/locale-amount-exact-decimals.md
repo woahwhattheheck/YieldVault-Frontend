@@ -21,3 +21,20 @@ The same 124 tests produced **108 pass / 16 fail before**, **124 pass / 0 fail /
 Tested blobs: utility `07e3dc22a4e3c78b7b2ad7e61e4b441f052d4a20`; utility tests `60307f7f68af426735a3ae12b294fba3e7b7cc50`; component tests `5aa0319b2ba8ec83f3b73a0bcfbcc2d6ebc2e127`. All match downloaded bytes. The validation workflow is isolated from the contribution branch.
 
 This fixes canonical-text display and boundary admission. The parser's numeric convenience `value`, existing numeric mock vault services, wallet implementation and transaction schema are not redesigned. No full application build, all-browser compatibility, live signature/chain execution, performance improvement, bounty award or payment is claimed.
+
+## Canonical minimum admission
+
+`AmountInput` is a text input, so forwarding `min` alone does not enforce a minimum. It now checks that boundary before emitting an accepted canonical amount. The `min` prop uses a nonnegative canonical decimal string within `maxFractionDigits`; malformed minimums report `Minimum amount is invalid`. Integer lengths, integer digits and zero-padded fractional strings are compared without binary rounding. The existing default `min="0"` returns immediately after normal amount parsing.
+
+Below-minimum edits clear the canonical value and preserve the localized draft and validation error through blur. Corrections and exact equality, including trailing fractional zeros, remain accepted. External values and changes to `min` are revalidated. Callers with externally managed values must continue consuming `onValidationError` before submission, as the existing forms do. No dependency, transaction schema, mock vault service or parser/cache behavior changes are included in this minimum repair.
+
+[Run 37204590242](https://github.com/woahwhattheheck/YieldVault-Frontend/actions/runs/37204590242), validation commit `9a23a58c0d27cd7a1cbe3af5fed3c43b90cf4c12`, used Node 22.23.3 and npm 10.9.9. The seven new mounted cases all failed on original component blob `f85c82a6b0e90a77ffab77f2900077aa44bb571a`, then all passed with the repair. The candidate selection passed **51/51**: seven new minimum cases plus all 44 existing mounted-input cases, unchanged. The candidate's `npm run build` also passed TypeScript and Vite production compilation. Only this selection ran, not the entire test suite:
+
+```sh
+npm test -- test/components/AmountInput.minimum.test.tsx test/components/AmountInput.test.tsx --maxWorkers=1
+npm run build
+```
+
+The initial `npm ci` attempt stopped before tests on missing esbuild lock entries. The successful run used the repository CI command `npm install --no-audit --no-fund`; its resolved lock and logs are retained, not substituted into the contribution. [Artifact 11304177196](https://github.com/woahwhattheheck/YieldVault-Frontend/actions/runs/37204590242/artifacts/11304177196) contains the exact before/after source, seven-case file, result JSON, build/install logs and resolved lock. Archive SHA-256: `0c489a3bfde49181e9c9303883a3773b4fd7b3a6b85392938863cb8efbf042f5`.
+
+Tested component blob `faff1e6136a7a4d992ca2ad31ca5f4fbc5dfecd1` and minimum-test blob `05dcdecf66ff8f3c45f10dca9aca5c75a3a10d19` match the contributed bytes. This run used the parser at base `cba76006680da5e49698ab0e7bb09c2299ea3dfc`. Publication preserves the subsequent independent ASCII parser optimization at parent `f52191b46750a6fad508dc2af942e94048789c9a`; the full composed tree was not rerun. The validation workflow remains outside the contribution branch. No live-chain execution, browser-wide validation, award or payment is claimed.

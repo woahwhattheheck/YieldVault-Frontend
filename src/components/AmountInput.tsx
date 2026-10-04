@@ -11,6 +11,7 @@ interface AmountInputProps {
   onChange: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Nonnegative canonical decimal minimum, within the supported precision. */
   min?: string;
   step?: string;
   id?: string;
@@ -20,6 +21,25 @@ interface AmountInputProps {
   maxFractionDigits?: number;
   /** Optional callback when parse fails (negative, excess precision, etc.). */
   onValidationError?: (message: string | null) => void;
+}
+
+/** Compare already-normalized decimal strings without binary rounding. */
+function minimumAmountError(canonical: string, min: string, locale: string, maxFractionDigits: number): string | null {
+  // The parser already enforces zero, the common default for existing forms.
+  if (min === '0') return null;
+  const minimum = parseLocaleAmount(min, { locale: 'en-US', maxFractionDigits });
+  if (!minimum.ok) return 'Minimum amount is invalid';
+  const [integer, fraction = ''] = canonical.split('.');
+  const [minInteger, minFraction = ''] = minimum.canonical.split('.');
+  const width = Math.max(fraction.length, minFraction.length);
+  const belowMinimum = integer.length !== minInteger.length
+    ? integer.length < minInteger.length
+    : integer !== minInteger
+      ? integer < minInteger
+      : fraction.padEnd(width, '0') < minFraction.padEnd(width, '0');
+  return belowMinimum
+    ? `Amount must be at least ${formatLocaleAmount(minimum.canonical, { locale, maxFractionDigits })}`
+    : null;
 }
 
 /**
@@ -48,6 +68,7 @@ export default function AmountInput({
     value: string;
     locale: string;
     maxFractionDigits: number;
+    min: string;
   } | null>(null);
 
   useEffect(() => {
@@ -56,6 +77,7 @@ export default function AmountInput({
       pending?.value === value &&
       pending.locale === locale &&
       pending.maxFractionDigits === maxFractionDigits &&
+      pending.min === min &&
       (focused || validationError !== null)
     ) {
       // A controlled-parent echo must preserve the localized draft, including
@@ -76,12 +98,12 @@ export default function AmountInput({
           ? canonical.replace('.', getLocaleSeparators(locale).decimal)
           : formatLocaleAmount(canonical, { locale, maxFractionDigits }),
       );
-      setValidationError(null);
+      setValidationError(minimumAmountError(canonical, min, locale, maxFractionDigits));
     } catch (error) {
       setDisplayValue(value);
       setValidationError(error instanceof Error ? error.message : 'Amount format is invalid');
     }
-  }, [value, locale, maxFractionDigits, focused, validationError]);
+  }, [value, locale, maxFractionDigits, min, focused, validationError]);
 
   useEffect(() => {
     onValidationError?.(validationError);
@@ -90,7 +112,7 @@ export default function AmountInput({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const inputValue = e.target.value;
     if (inputValue.trim() === '') {
-      pendingEdit.current = { value: '', locale, maxFractionDigits };
+      pendingEdit.current = { value: '', locale, maxFractionDigits, min };
       onChange('');
       setValidationError(null);
       setDisplayValue('');
@@ -98,17 +120,20 @@ export default function AmountInput({
     }
 
     const parsed = parseLocaleAmount(inputValue, { locale, maxFractionDigits });
-    if (!parsed.ok) {
+    const error = parsed.ok
+      ? minimumAmountError(parsed.canonical, min, locale, maxFractionDigits)
+      : parsed.error;
+    if (!parsed.ok || error) {
       // Reject the canonical value too, so callers cannot submit an earlier
       // valid amount while the field displays a different, invalid draft.
-      pendingEdit.current = { value: '', locale, maxFractionDigits };
+      pendingEdit.current = { value: '', locale, maxFractionDigits, min };
       onChange('');
       setDisplayValue(inputValue);
-      setValidationError(parsed.error);
+      setValidationError(error);
       return;
     }
 
-    pendingEdit.current = { value: parsed.canonical, locale, maxFractionDigits };
+    pendingEdit.current = { value: parsed.canonical, locale, maxFractionDigits, min };
     setValidationError(null);
     onChange(parsed.canonical);
     setDisplayValue(focused ? inputValue : formatLocaleAmount(parsed.canonical, { locale, maxFractionDigits }));
