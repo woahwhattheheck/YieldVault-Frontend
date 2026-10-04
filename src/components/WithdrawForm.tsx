@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
 import { useWallet } from '../hooks/useWallet.js';
@@ -34,6 +34,29 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  const focusBeforeSubmit = useRef<Element | null>(null);
+
+  useLayoutEffect(() => {
+    const previous = focusBeforeSubmit.current;
+    if (!previous) return;
+    const doc = previous.ownerDocument;
+    if (submitting) {
+      // Moving elsewhere cancels restoration, even if that new focus later blurs.
+      const preserveMovedFocus = (event: FocusEvent) => {
+        if (event.target !== previous && event.target !== doc.body) {
+          focusBeforeSubmit.current = null;
+        }
+      };
+      doc.addEventListener('focusin', preserveMovedFocus);
+      return () => doc.removeEventListener('focusin', preserveMovedFocus);
+    }
+    focusBeforeSubmit.current = null;
+    if (doc.activeElement === doc.body ||
+        (doc.activeElement === previous && previous.matches(':disabled'))) {
+      messageRef.current?.focus();
+    }
+  }, [submitting]);
   
   const position = positions.find((p: { vaultId: string }) => p.vaultId === vault.id);
   const deposited = position?.value ?? 0;
@@ -51,9 +74,11 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
 
   const handleMax = () => setAmount(String(deposited));
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!valid) return;
+    const focused = e.currentTarget.ownerDocument.activeElement;
+    focusBeforeSubmit.current = e.currentTarget.contains(focused) ? focused : null;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -120,7 +145,7 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
         </p>
       )}
       {message && (
-        <p id={messageId} className="form-message" role="status" aria-live="polite">
+        <p ref={messageRef} id={messageId} className="form-message" role="status" aria-live="polite" tabIndex={-1}>
           {message}
         </p>
       )}

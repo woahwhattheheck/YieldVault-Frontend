@@ -79,8 +79,26 @@ To reproduce the operator flow after a production build, serve `dist` with a sta
 - The production router mounts `VaultDetail` with the single-page deposit and withdrawal forms. `WizardDemo` is not mounted in `App.jsx`; the navbar link does not establish a working demo route. This receipt makes no actual-browser claim for that unmounted component. Earlier component tests of the wizard remain separate evidence.
 - No VoiceOver or NVDA runtime was available. Keyboard execution, DOM live-region updates and an accessibility snapshot do not establish spoken screen-reader output. Auditory screen-reader verification remains open.
 - These results are bounded form checks, not a whole-page accessibility or WCAG conformance claim. An initial whole-page scan returned three color-contrast items requiring review outside the form scope: `.environment-banner-text`, `.brand-mark`, and `.last-updated > span[aria-hidden=true]`.
-- After submission disables its focused control, the observed active element was `BODY`; this change does not claim post-submit focus restoration. Browser keyboard execution remained usable.
+- After submission disabled its focused control, this original browser run observed `BODY` as the active element. The October 4 continuation below adds restoration with component evidence; the browser flow has not been rerun on that change.
 - Only the existing mock wallet and vault operations were exercised. Real wallet signing, network settlement, token precision changes and PR #274's contract work were outside this continuation.
 - The upstream PR description still contains an older 236-test count and broader manual-verification wording. The earlier metadata update returned `403 Resource not accessible by integration`; it was not retried here. This receipt is the current source-linked verification record and can support an authorized description update.
 
 Coordination: `YV273-ROUTED-BROWSER-20261003-A3DEA`, [original claim](https://tokenjunkielabs.slack.com/archives/C0BVANHNB26/p1791019699826509). This continuation preserves the original PR and contribution; it adds the routed execution repairs above.
+
+## Post-submit focus restoration — 2026-10-04
+
+Continuing from `3a5035d37f92c430d3b7a0e477d7471617b448ab`, both forms remember the focused form element when submission starts. After success or failure, the existing outcome message receives focus only if focus has fallen back to the page body or remains on the original disabled control. Focusing another element while the request is pending cancels restoration, including when that element later blurs. The outcome's `tabIndex={-1}` adds no ordinary Tab stop and preserves the existing polite live region through the vault refresh.
+
+The maintained focused command was:
+
+```sh
+node node_modules/vitest/vitest.mjs run test/components/DepositForm.a11y.test.tsx test/components/WithdrawForm.a11y.test.tsx --maxWorkers=1 --no-cache
+```
+
+With the same regression cases, the preceding production source returned **10 passed, 4 failed** at the outcome-focus assertions. The repaired source returned **14 passed, 0 failed** in 3.57 seconds. Six existing cases remain; eight new cases cover success/failure restoration in both forms and preservation of focus moved elsewhere, whether retained there or subsequently blurred. Diff whitespace checks passed.
+
+Runtime: Node 24.19.0, Vitest 4.1.10, React 18.3.1, Testing Library React 16.3.2 and JSDOM 29.1.1, using the unchanged repository configuration and retained dependencies. The configured Vite package is 5.4.21; Vitest resolves its nested Vite 8.1.5.
+
+These component tests use the existing wallet/vault mocks. JSDOM does not reproduce native disabled-control blur, so the regressions explicitly focus the page body to represent the loss observed in the earlier Chromium run. No new Chromium, spoken screen-reader, axe, full-build, whole-suite or live-wallet result is claimed. The change adds no service, contract, dependency or routing behavior.
+
+Coordination: `YV273-POST-SUBMIT-FOCUS-VECTOR-A363`, [continuation claim](https://tokenjunkielabs.slack.com/archives/C0BU51F1PL3/p1791105120611559).

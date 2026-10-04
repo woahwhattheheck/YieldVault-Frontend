@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
 import { useWallet } from '../hooks/useWallet.js';
@@ -32,6 +32,29 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const [amount, setAmount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  const focusBeforeSubmit = useRef<Element | null>(null);
+
+  useLayoutEffect(() => {
+    const previous = focusBeforeSubmit.current;
+    if (!previous) return;
+    const doc = previous.ownerDocument;
+    if (submitting) {
+      // Moving elsewhere cancels restoration, even if that new focus later blurs.
+      const preserveMovedFocus = (event: FocusEvent) => {
+        if (event.target !== previous && event.target !== doc.body) {
+          focusBeforeSubmit.current = null;
+        }
+      };
+      doc.addEventListener('focusin', preserveMovedFocus);
+      return () => doc.removeEventListener('focusin', preserveMovedFocus);
+    }
+    focusBeforeSubmit.current = null;
+    if (doc.activeElement === doc.body ||
+        (doc.activeElement === previous && previous.matches(':disabled'))) {
+      messageRef.current?.focus();
+    }
+  }, [submitting]);
   
   const balance = balanceOf(vault.asset);
   const { valid, error } = validateDeposit(amount, balance);
@@ -44,9 +67,11 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
   const handleMax = () => setAmount(String(balance));
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!valid) return;
+    const focused = e.currentTarget.ownerDocument.activeElement;
+    focusBeforeSubmit.current = e.currentTarget.contains(focused) ? focused : null;
     setSubmitting(true);
     setMessage(null);
     try {
@@ -113,7 +138,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
         </p>
       )}
       {message && (
-        <p id={messageId} className="form-message" role="status" aria-live="polite">
+        <p ref={messageRef} id={messageId} className="form-message" role="status" aria-live="polite" tabIndex={-1}>
           {message}
         </p>
       )}
