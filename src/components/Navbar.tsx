@@ -15,9 +15,13 @@ export default function Navbar() {
   const inRouter = useInRouterContext();
   const appContext = useContext(AppContext);
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof localStorage !== "undefined") {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      return stored === "true";
+    try {
+      if (typeof localStorage !== "undefined") {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        return stored === "true";
+      }
+    } catch {
+      /* storage unavailable — use expanded navigation */
     }
     return false;
   });
