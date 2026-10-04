@@ -17,9 +17,15 @@ import { NETWORKS } from '../lib/networks.js';
  */
 export function getNetworkGuardState(walletNetwork, expected = CONFIG.network) {
   const connected = walletNetwork ?? null;
-  const expectedLabel = NETWORKS[expected]?.label || expected;
-  const connectedLabel = connected ? NETWORKS[connected]?.label || connected : null;
-  const unsupported = Boolean(connected && !NETWORKS[connected]);
+  const expectedNetwork = Object.prototype.hasOwnProperty.call(NETWORKS, expected)
+    ? NETWORKS[expected]
+    : null;
+  const connectedNetwork = Object.prototype.hasOwnProperty.call(NETWORKS, connected)
+    ? NETWORKS[connected]
+    : null;
+  const expectedLabel = expectedNetwork?.label || expected;
+  const connectedLabel = connected ? connectedNetwork?.label || connected : null;
+  const unsupported = Boolean(connected && !connectedNetwork);
   const matched = Boolean(connected && connected === expected && !unsupported);
   return {
     ready: matched,

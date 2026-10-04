@@ -1,7 +1,7 @@
 import { withLatency, clone } from './api.js';
 import { MOCK_BALANCES } from './mockData.js';
 import { CONFIG } from '../constants/config.js';
-import { NETWORKS } from '../lib/networks.js';
+import { getNetworkGuardState } from '../utils/networkGuard.js';
 
 /**
  * Mock Stellar wallet service. Simulates connecting a Freighter-style
@@ -12,12 +12,24 @@ const MOCK_ADDRESS = 'GAYV7XALOK6PTT5XJVMGCPTUEPFM4AVSRCJ55ZDRIPSXYLD7VAULT';
 
 /** In-memory wallet network override for tests and switch-network flows. */
 let mockWalletNetwork = null;
+let walletNetworkRevision = 0;
+
+function currentWalletNetwork() {
+  return mockWalletNetwork ?? CONFIG.network;
+}
+
+function setWalletNetwork(network) {
+  const previous = currentWalletNetwork();
+  mockWalletNetwork = network;
+  if (currentWalletNetwork() !== previous) walletNetworkRevision += 1;
+}
 
 /**
  * Reset mock wallet network state (tests only).
  */
 export function __resetWalletNetworkForTests() {
   mockWalletNetwork = null;
+  walletNetworkRevision += 1;
 }
 
 /**
@@ -25,7 +37,7 @@ export function __resetWalletNetworkForTests() {
  * @param {string|null} network
  */
 export function __setWalletNetworkForTests(network) {
-  mockWalletNetwork = network;
+  setWalletNetwork(network);
 }
 
 /**
@@ -34,11 +46,8 @@ export function __setWalletNetworkForTests(network) {
  * @returns {Promise<string>}
  */
 export async function getNetwork() {
-  if (mockWalletNetwork) {
-    return withLatency(mockWalletNetwork);
-  }
   // Default: mirror the configured deployment so a fresh connect matches.
-  return withLatency(CONFIG.network);
+  return withLatency(currentWalletNetwork());
 }
 
 /**
@@ -48,11 +57,11 @@ export async function getNetwork() {
  * @returns {Promise<string>}
  */
 export async function switchNetwork(target = CONFIG.network) {
-  if (!NETWORKS[target] && target !== 'testnet' && target !== 'mainnet') {
+  if (!getNetworkGuardState(target, target).ready) {
     throw new Error(`Unsupported network: ${target}`);
   }
   // Simulate a user-approved switch. Tests can stub this to reject.
-  mockWalletNetwork = target;
+  setWalletNetwork(target);
   return withLatency(target);
 }
 
@@ -70,6 +79,8 @@ export async function connect() {
  */
 export async function disconnect() {
   mockWalletNetwork = null;
+  // Disconnect invalidates pending requests even if the default network matches.
+  walletNetworkRevision += 1;
   return withLatency(undefined, 150);
 }
 
@@ -79,6 +90,25 @@ export async function disconnect() {
  */
 export async function getBalances() {
   return withLatency(clone(MOCK_BALANCES));
+}
+
+function assertSubmissionNetwork(walletNetwork, expected, revision) {
+  if (revision !== walletNetworkRevision) {
+    const err = new Error('Wallet network changed while the transaction was pending. Please try again.');
+    err.code = 'NETWORK_CHANGED';
+    err.walletNetwork = currentWalletNetwork();
+    err.expectedNetwork = expected;
+    throw err;
+  }
+  if (!getNetworkGuardState(walletNetwork, expected).ready) {
+    const err = new Error(
+      `Wrong network: wallet is on ${walletNetwork}, app expects ${expected}`,
+    );
+    err.code = 'WRONG_NETWORK';
+    err.walletNetwork = walletNetwork;
+    err.expectedNetwork = expected;
+    throw err;
+  }
 }
 
 /**
@@ -91,20 +121,16 @@ export async function getBalances() {
  */
 export async function signAndSubmit(summary, opts = {}) {
   const expected = opts.expectedNetwork ?? CONFIG.network;
+  const revision = walletNetworkRevision;
   // Re-read at submission time; a render-time network snapshot may already
   // be stale after a wallet event or app network switch.
   const walletNetwork = await getNetwork();
+  assertSubmissionNetwork(walletNetwork, expected, revision);
 
-  if (walletNetwork !== expected) {
-    const err = new Error(
-      `Wrong network: wallet is on ${walletNetwork}, app expects ${expected}`,
-    );
-    err.code = 'WRONG_NETWORK';
-    err.walletNetwork = walletNetwork;
-    err.expectedNetwork = expected;
-    throw err;
-  }
-
+  // Keep the existing simulated submission delay, but do not publish success
+  // from a request invalidated while either asynchronous step was pending.
+  await withLatency(undefined);
+  assertSubmissionNetwork(currentWalletNetwork(), expected, revision);
   const hash = `mock-${Math.random().toString(16).slice(2, 10)}`;
-  return withLatency({ hash, summary });
+  return { hash, summary };
 }
