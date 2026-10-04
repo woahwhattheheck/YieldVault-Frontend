@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import { parseLocaleAmount } from '../utils/localeAmount.js';
 import { useWallet } from '../hooks/useWallet.js';
 import { validateDeposit } from '../utils/validate.js';
 import { previewDeposit } from '../utils/shares.js';
@@ -39,7 +40,10 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
   const touched = amount !== '';
   const validationMessage = amountError || (touched ? error : null);
 
-  const handleMax = () => setAmount(String(balance));
+  const handleMax = () => {
+    const maximum = parseLocaleAmount(balance);
+    setAmount(maximum.ok ? maximum.canonical : String(balance));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import Button from './Button';
 import AmountInput from './AmountInput';
+import { parseLocaleAmount } from '../utils/localeAmount.js';
 import { useWallet } from '../hooks/useWallet.js';
 import { usePositions } from '../hooks/usePositions.js';
 import { validateWithdraw } from '../utils/validate.js';
@@ -46,7 +47,10 @@ export default function WithdrawForm({ vault, onSuccess }: WithdrawFormProps) {
   const touched = amount !== '';
   const validationMessage = amountError || (touched ? error : null);
 
-  const handleMax = () => setAmount(String(deposited));
+  const handleMax = () => {
+    const maximum = parseLocaleAmount(deposited);
+    setAmount(maximum.ok ? maximum.canonical : String(deposited));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
