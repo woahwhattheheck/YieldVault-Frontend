@@ -5,12 +5,12 @@
  * Exit codes:
  *   0 — policy satisfied (critical-free; no disallowed licenses)
  *   1 — policy violation (critical vulns and/or disallowed licenses)
- *   2 — tooling failure (audit could not run)
+ *   2 — tooling failure (audit or license scan could not complete)
  *
  * Warnings (high/moderate/low, UNKNOWN licenses) print to stderr but do not fail.
  */
 import { spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, existsSync, statSync, realpathSync } from 'node:fs';
+import { readdirSync, readFileSync, lstatSync, statSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEPENDENCY_POLICY,
@@ -20,29 +20,54 @@ import {
 function collectPackageLicenses(nodeModulesDir) {
   const findings = [];
   const visited = new Set();
-  if (!existsSync(nodeModulesDir)) return findings;
+  let installedTreeExists = true;
+  try {
+    lstatSync(nodeModulesDir);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    installedTreeExists = false;
+  }
+  if (!installedTreeExists) {
+    let project;
+    try {
+      project = JSON.parse(readFileSync(join(nodeModulesDir, '..', 'package.json'), 'utf8'));
+    } catch (error) {
+      if (error.code === 'ENOENT') return findings;
+      throw error;
+    }
+    if (!project || typeof project !== 'object' || Array.isArray(project)) {
+      throw new Error('project package.json must contain an object');
+    }
+    // A genuinely empty project, or one whose only dependencies are optional,
+    // can have no installed tree. Required prod/dev packages need an install.
+    const optional = new Set(Object.keys(project.optionalDependencies || {}));
+    const required = ['dependencies', 'devDependencies'].some((field) =>
+      Object.keys(project[field] || {}).some((name) => !optional.has(name)),
+    );
+    if (required) throw new Error('node_modules is missing; run npm ci before scanning licenses');
+    return findings;
+  }
 
   function considerPkg(pkgDir) {
-    let realDir;
-    try {
-      realDir = realpathSync(pkgDir);
-    } catch {
-      return;
-    }
+    const realDir = realpathSync(pkgDir);
     if (visited.has(realDir)) return;
     visited.add(realDir);
 
     // npm can retain transitive dependencies below ordinary or scoped packages.
     // Follow linked packages once, including cycles and shared workspace links.
-    walk(join(pkgDir, 'node_modules'));
+    walk(join(pkgDir, 'node_modules'), true);
 
     const manifestPath = join(pkgDir, 'package.json');
-    if (!existsSync(manifestPath)) return;
     let manifest;
     try {
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-    } catch {
-      return;
+    } catch (error) {
+      // Manifestless directories can still hold nested dependency packages.
+      if (error.code === 'ENOENT') return;
+      throw error;
+    }
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+      throw new Error(`package.json must contain an object: ${manifestPath}`);
     }
     if (!manifest.name || !manifest.version) return;
 
@@ -68,39 +93,26 @@ function collectPackageLicenses(nodeModulesDir) {
     });
   }
 
-  function walk(dir) {
+  function walk(dir, optional = false) {
     let entries;
     try {
       entries = readdirSync(dir);
-    } catch {
-      return;
+    } catch (error) {
+      if (optional && error.code === 'ENOENT') return;
+      throw error;
     }
     for (const entry of entries) {
       if (entry === '.bin' || entry === '.package-lock.json') continue;
       const full = join(dir, entry);
-      let st;
-      try {
-        st = statSync(full);
-      } catch {
-        continue;
-      }
+      const st = statSync(full);
       if (!st.isDirectory()) continue;
 
       if (entry.startsWith('@')) {
         // scoped packages
-        let scopes;
-        try {
-          scopes = readdirSync(full);
-        } catch {
-          continue;
-        }
+        const scopes = readdirSync(full);
         for (const scoped of scopes) {
           const scopedDir = join(full, scoped);
-          try {
-            if (statSync(scopedDir).isDirectory()) considerPkg(scopedDir);
-          } catch {
-            /* ignore */
-          }
+          if (statSync(scopedDir).isDirectory()) considerPkg(scopedDir);
         }
         continue;
       }
@@ -190,7 +202,13 @@ function main() {
   }
 
   console.log('dependency-gate: scanning licenses in node_modules...');
-  const licenses = collectPackageLicenses(join(process.cwd(), 'node_modules'));
+  let licenses;
+  try {
+    licenses = collectPackageLicenses(join(process.cwd(), 'node_modules'));
+  } catch (error) {
+    console.error('dependency-gate: license scan did not complete:', error.message);
+    process.exit(2);
+  }
   const disallowed = [];
   const unknown = [];
 

@@ -175,6 +175,80 @@ describe('dependency audit execution', () => {
 
   const cleanAudit = {status: 0, stdout: JSON.stringify(report())};
 
+  it.each(['dependencies', 'devDependencies'])(
+    'fails with tooling exit 2 when declared %s have no installed tree', (field) => {
+      const result = runChecker(cleanAudit, (dir) => {
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({
+          name: 'not-installed', version: '1.0.0', [field]: {example: '1.0.0'},
+        }));
+      });
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('node_modules is missing');
+      expect(result.stdout).not.toContain('no disallowed licenses');
+    },
+  );
+
+  it.each([
+    {},
+    {optionalDependencies: {example: '1.0.0'}},
+    {dependencies: {example: '1.0.0'}, optionalDependencies: {example: '1.0.0'}},
+  ])('preserves an empty or optional-only project with no installed tree: %j', (dependencies) => {
+    const result = runChecker(cleanAudit, (dir) => {
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({
+        name: 'empty-install', version: '1.0.0', ...dependencies,
+      }));
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('0 packages scanned, no disallowed licenses');
+  });
+
+  it.each(['node_modules', 'node_modules/parent/node_modules'])(
+    'fails with tooling exit 2 when dependency directory %s is a file', (path) => {
+      const result = runChecker(cleanAudit, (dir) => {
+        if (path.includes('parent')) installPackage(dir, 'parent', 'MIT');
+        writeFileSync(join(dir, path), 'not a directory');
+      });
+      expect(result.status).toBe(2);
+      expect(result.stderr).toContain('license scan did not complete');
+      expect(result.stdout).not.toContain('no disallowed licenses');
+    },
+  );
+
+  it.each([
+    ['ordinary', '{broken'],
+    ['@scope/broken', '{broken'],
+    ['invalid-object', '[]'],
+  ])('fails with tooling exit 2 for invalid existing manifest %s', (name, contents) => {
+    const result = runChecker(cleanAudit, (dir) => {
+      const pkgDir = installPackage(dir, name, 'MIT');
+      writeFileSync(join(pkgDir, 'package.json'), contents);
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('license scan did not complete');
+    expect(result.stdout).not.toContain('no disallowed licenses');
+  });
+
+  it('fails with tooling exit 2 when an existing package manifest cannot be read', () => {
+    const result = runChecker(cleanAudit, (dir) => {
+      const manifest = join(installPackage(dir, 'unreadable', 'MIT'), 'package.json');
+      rmSync(manifest);
+      mkdirSync(manifest);
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('license scan did not complete');
+    expect(result.stdout).not.toContain('no disallowed licenses');
+  });
+
+  it('still scans nested packages beneath a manifestless placeholder', () => {
+    const result = runChecker(cleanAudit, (dir) => {
+      const placeholder = installPackage(dir, 'placeholder', 'MIT');
+      rmSync(join(placeholder, 'package.json'));
+      installPackage(dir, 'placeholder/node_modules/copyleft', 'GPL-3.0');
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('copyleft@1.0.0: GPL-3.0');
+  });
+
   it.each([
     ['GPL-3.0', [], 1],
     ['GPL-3.0', [{}, ''], 1],
