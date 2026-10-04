@@ -164,6 +164,25 @@ describe('dependency audit execution', () => {
     if (severity === 'critical') expect(result.stderr).toContain('FAIL');
   });
 
+  it.each([
+    ['missing critical detail', {...report('critical'), vulnerabilities: {}}],
+    ['severity metadata mismatch', {...report('high'), metadata: report('critical').metadata}],
+    ['missing warning detail', {
+      ...report('high'),
+      metadata: {vulnerabilities: {...report('high').metadata.vulnerabilities, high: 2, total: 2}},
+    }],
+    ['incorrect total', {
+      ...report(),
+      metadata: {vulnerabilities: {...report().metadata.vulnerabilities, total: 1}},
+    }],
+  ])('fails with tooling exit 2 for inconsistent vulnerability counts: %s', (_, auditReport) => {
+    const result = runChecker({status: 1, stdout: JSON.stringify(auditReport)});
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('vulnerability counts do not match findings');
+    expect(result.stdout).not.toContain('no critical vulnerability findings');
+    expect(result.stdout).not.toContain('no disallowed licenses');
+  });
+
   function installPackage(dir, path, license) {
     const pkgDir = join(dir, 'node_modules', path);
     mkdirSync(pkgDir, {recursive: true});

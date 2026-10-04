@@ -166,6 +166,16 @@ function main() {
     console.error('dependency-gate: npm audit returned an error or an incomplete vulnerability report');
     process.exit(2);
   }
+
+  // npm's v2 summary and detail map describe the same package findings. A
+  // partial map must not hide a critical count behind a successful exit.
+  const entries = Object.values(vulns);
+  const observed = Object.fromEntries(severities.map((severity) => [severity, 0]));
+  for (const entry of entries) observed[entry.severity] += 1;
+  if (counts.total !== entries.length || severities.some((severity) => counts[severity] !== observed[severity])) {
+    console.error('dependency-gate: npm audit vulnerability counts do not match findings');
+    process.exit(2);
+  }
   console.log(
     `dependency-gate: vulnerability summary — critical=${counts.critical ?? 0} high=${counts.high ?? 0} moderate=${counts.moderate ?? 0} low=${counts.low ?? 0}`,
   );
