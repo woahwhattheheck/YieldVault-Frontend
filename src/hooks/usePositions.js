@@ -55,7 +55,7 @@ export function usePositions() {
     positionCache.invalidate(queryKey);
   }, [queryKey]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (share = false) => {
     // Retired callers must not allocate a generation or consume the current
     // scope's scheduled refresh, including after this consumer unmounts.
     if (activeLifecycle.current !== lifecycle) return;
@@ -70,13 +70,17 @@ export function usePositions() {
       return;
     }
 
-    const generation = positionCache.beginFetch(queryKey);
+    const { generation, promise } = positionCache.beginSharedFetch(
+      queryKey,
+      vaultService.getPositions,
+      { force: !share },
+    );
     inFlightGen.current = generation;
     setLoading(true);
     setError(null);
 
     try {
-      const data = await vaultService.getPositions();
+      const data = await promise;
       // Drop obsolete responses — a newer fetch or invalidation won the race.
       if (activeLifecycle.current !== lifecycle || inFlightGen.current !== generation) {
         return;
@@ -106,6 +110,9 @@ export function usePositions() {
     }
   }, [isConnected, address, queryKey, lifecycle]);
 
+  // Public reload always supersedes a pending read; events cannot enable sharing.
+  const reload = useCallback(() => load(false), [load]);
+
   // Identity / network change: invalidate prior scope and reload.
   useEffect(() => {
     // Cancel any in-flight request tied to the previous key.
@@ -118,7 +125,7 @@ export function usePositions() {
       return undefined;
     }
     positionCache.invalidateScope({ actor: address, network });
-    load();
+    load(true);
     return () => {
       inFlightGen.current = -1;
     };
@@ -138,7 +145,7 @@ export function usePositions() {
         setLastUpdated(null);
         pendingAutoReload.current = true;
         queueMicrotask(() => {
-          if (pendingAutoReload.current) void load();
+          if (pendingAutoReload.current) void load(true);
         });
       } else if (event.type === 'data') {
         setPositions(event.data);
@@ -156,7 +163,7 @@ export function usePositions() {
     error,
     lastUpdated,
     queryKey,
-    reload: load,
+    reload,
     invalidate,
   };
 }

@@ -112,3 +112,42 @@ during this focused check.
   }
 }
 ```
+
+## Shared in-flight reads — 5 October 2026 source continuation
+
+Canonical contribution: [YieldVault-Frontend PR #268](https://github.com/YieldVault-Org/YieldVault-Frontend/pull/268),
+for [issue #256](https://github.com/YieldVault-Org/YieldVault-Frontend/issues/256).
+This continues `YV268-SHARED-INFLIGHT-COPPER-D520`, whose original source task
+identified concurrent consumers allocating competing generations for the same
+position read. The starting contribution head was
+`fa97ec5b06dd00a6b99097a9e7123a9590415c41`; cache and hook preimages were
+`02b65a1961f180e6781674cb6117a6923a307b51` and
+`622baec1ca45e0a9488537e794bef006848a2ddf`.
+
+`beginSharedFetch(key, loader, { force })` returns a generation and a promise.
+An automatic refresh joins a pending request only while its generation remains
+current for that exact key. The complete request is registered before invoking
+the loader, so synchronous re-entry can receive the same usable promise.
+A synchronous loader exception rejects that promise. Success and failure remove
+only their own request record; an older settlement cannot remove a replacement.
+
+The hook binds its existing lifecycle and generation guards to the returned
+shared generation. Automatic invalidation refreshes can share that request.
+Public `reload()` always starts a fresh generation, as do direct `beginFetch`
+calls. Invalidation and clear retire the shared record without resetting the
+monotonic counter or canceling the underlying loader. Existing stale result and
+error checks remain responsible for rejecting retired work.
+
+This is pending-read sharing, with no TTL or completed-result cache. It assumes
+the existing query key identifies compatible loader semantics. Independent
+mount effects still invalidate their scope, so this does not promise one request
+across every simultaneous mount. Joining hooks retain their existing cache
+writes and notifications; reduced renders are not claimed. The current
+`vaultService.getPositions` reads the demo position store through its latency
+helper, so no production network-request reduction is asserted.
+
+This continuation was checked by source inspection and exact publication
+readbacks only. No utility, hook, browser, test suite or workflow was executed,
+and no performance measurement was made. The earlier execution record above
+remains historical evidence for its original cache-clear source, not acceptance
+of this later sharing change.

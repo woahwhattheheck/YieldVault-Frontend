@@ -27,6 +27,7 @@ export function createPositionCache() {
   /** @type {Map<string, { generation: number, data: unknown }>} */
   const entries = new Map();
   const listeners = new Map();
+  const inFlight = new Map();
   let globalGeneration = 0;
 
   function notify(key, event) {
@@ -77,6 +78,7 @@ export function createPositionCache() {
      * @returns {number} new generation
      */
     invalidate(key) {
+      inFlight.delete(key);
       globalGeneration += 1;
       const nextGen = globalGeneration;
       entries.set(key, { generation: nextGen, data: undefined });
@@ -114,6 +116,7 @@ export function createPositionCache() {
      * @returns {number}
      */
     beginFetch(key) {
+      inFlight.delete(key);
       globalGeneration += 1;
       const generation = globalGeneration;
       const existing = entries.get(key);
@@ -124,7 +127,45 @@ export function createPositionCache() {
       return generation;
     },
 
+    /**
+     * Join a pending read for this key's current generation, or start a new one.
+     * Explicit reloads pass force; invalidation also retires the shared record.
+     * Callers sharing a key must use compatible loader semantics.
+     * @param {string} key
+     * @param {() => unknown|Promise<unknown>} loader
+     * @param {{ force?: boolean }} options
+     * @returns {{ generation: number, promise: Promise<unknown> }}
+     */
+    beginSharedFetch(key, loader, { force = false } = {}) {
+      const pending = inFlight.get(key);
+      if (!force && pending && entries.get(key)?.generation === pending.generation) {
+        return pending;
+      }
+
+      const generation = this.beginFetch(key);
+      let invokeLoader;
+      const promise = new Promise((resolve, reject) => {
+        invokeLoader = () => {
+          try {
+            resolve(loader());
+          } catch (error) {
+            reject(error);
+          }
+        };
+      });
+      const request = { generation, promise };
+      // Install a usable promise before the loader can synchronously re-enter.
+      inFlight.set(key, request);
+      const release = () => {
+        if (inFlight.get(key) === request) inFlight.delete(key);
+      };
+      promise.then(release, release);
+      invokeLoader();
+      return request;
+    },
+
     clear() {
+      inFlight.clear();
       // Keep tokens monotonic so pre-clear responses cannot match later fetches.
       entries.clear();
     },
