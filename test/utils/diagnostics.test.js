@@ -42,12 +42,19 @@ describe('diagnostics', () => {
     const safe = redactSecrets({
       address: WALLET,
       authorization: 'Bearer super-secret-token-value',
-      nested: { apiKey: 'abc123', note: 'ok' },
+      nested: {
+        apiKey: 'abc123',
+        clientSecret: 'oauth-client-secret',
+        client_secret: 'oauth-client-secret-legacy',
+        note: 'ok',
+      },
       list: [{ privateKey: SECRET }],
     });
     expect(safe.address).toBe(REDACTED);
     expect(safe.authorization).toBe(REDACTED);
     expect(safe.nested.apiKey).toBe(REDACTED);
+    expect(safe.nested.clientSecret).toBe(REDACTED);
+    expect(safe.nested.client_secret).toBe(REDACTED);
     expect(safe.nested.note).toBe('ok');
     expect(safe.list[0].privateKey).toBe(REDACTED);
     expect(containsSensitiveValue(safe)).toBe(false);
@@ -77,11 +84,19 @@ describe('diagnostics', () => {
     const endpoint = 'https://rpc.example.test:443/users/contact@example.test?network=test';
     expect(redactString(endpoint)).toBe(endpoint);
     expect(containsSensitiveValue(endpoint)).toBe(false);
-    const query = 'https://rpc.example.test/v1?api_key=diagnostic-canary-key&network=test';
-    expect(containsSensitiveValue(query)).toBe(true);
-    const safe = redactString(query);
-    expect(safe).toContain(`api_key=${REDACTED}&network=test`);
-    expect(containsSensitiveValue(safe)).toBe(false);
+    const queries = [
+      ['api_key', 'diagnostic-canary-key'],
+      ['client_secret', 'diagnostic-oauth-secret'],
+      ['clientSecret', 'diagnostic-oauth-secret-camel'],
+    ];
+    for (const [key, value] of queries) {
+      const query = `https://rpc.example.test/v1?${key}=${value}&network=test`;
+      expect(containsSensitiveValue(query)).toBe(true);
+      const safe = redactString(query);
+      expect(safe).toContain(`${key}=${REDACTED}&network=test`);
+      expect(safe).not.toContain(value);
+      expect(containsSensitiveValue(safe)).toBe(false);
+    }
   });
 
   it('classifies dependency failures as retryable', () => {
