@@ -29,7 +29,7 @@ const HEX_SECRET_PATTERN = /\b(?:0x)?[a-fA-F0-9]{64,}\b/g;
 
 /** Query/fragment credential parameters. */
 const CRED_QUERY_PATTERN =
-  /([?&#](?:token|access_token|refresh_token|api_key|apikey|secret|password|key)=)[^&#\s]+/gi;
+  /([?&#](?:token|access_token|refresh_token|api_key|apikey|client[_-]?secret|secret|password|key)=)[^&#\s]+/gi;
 
 /** URL user information, including encoded credentials and relative URLs. */
 const URL_CREDENTIAL_PATTERN = /((?:\b[a-z][a-z0-9+.-]*:)?\/\/)[^\s/?#]+@/gi;
