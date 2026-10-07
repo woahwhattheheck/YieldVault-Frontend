@@ -81,11 +81,27 @@ export function redactSecrets(value, depth = 0) {
   if (value == null) return value;
   if (typeof value === 'string') return redactString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return value;
-  if (value instanceof Error) {
+  let isError = false;
+  try {
+    isError = value instanceof Error;
+  } catch {
+    return REDACTED;
+  }
+  if (isError) {
+    const safeRead = (key) => {
+      try {
+        return value[key];
+      } catch {
+        return REDACTED;
+      }
+    };
+    const name = safeRead('name');
+    const message = safeRead('message');
+    const code = safeRead('code');
     return {
-      name: value.name,
-      message: redactString(value.message || ''),
-      code: redactSecrets(/** @type {{ code?: unknown }} */ (value).code, depth + 1),
+      name: typeof name === 'string' ? redactString(name) : REDACTED,
+      message: typeof message === 'string' ? redactString(message) : REDACTED,
+      code: code === REDACTED ? REDACTED : redactSecrets(code, depth + 1),
     };
   }
   if (Array.isArray(value)) {
