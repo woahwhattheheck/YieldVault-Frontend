@@ -13,7 +13,7 @@ export const REDACTED = '[REDACTED]';
 
 /** Object keys whose values are always treated as secrets. */
 const SENSITIVE_KEY_PATTERN =
-  /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key|secret|seed|mnemonic|password|passphrase|provider[_-]?secret|bearer|jwt|session[_-]?token)$/i;
+  /^(authorization|cookie|set-cookie|x-api-key|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key|secret|seed|mnemonic|password|passphrase|client[_-]?secret|provider[_-]?secret|bearer|jwt|session[_-]?token)$/i;
 
 /** Stellar account (G…), contract (C…), and secret (S…) keys. */
 const STELLAR_KEY_PATTERN = /\b[GCS][A-Z2-7]{55}\b/g;
