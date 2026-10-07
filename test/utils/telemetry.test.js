@@ -87,6 +87,22 @@ describe('telemetry', () => {
     expect(JSON.stringify(getTelemetryEvents())).not.toContain(secret);
   });
 
+  it('fails closed when Error identity inspection throws', () => {
+    const error = new Proxy(new Error('safe'), {
+      getPrototypeOf() {
+        throw new Error('inspection failed');
+      },
+    });
+    const stored = reportDiagnostic({
+      correlationId: 'yv-prototype',
+      feature: 'vaults',
+      level: 'feature',
+      error,
+    });
+    expect(stored).toBeTruthy();
+    expect(stored.error).toBe(REDACTED);
+  });
+
   it('does not reintroduce raw metadata when dropping an unsafe event', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     try {
