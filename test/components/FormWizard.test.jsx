@@ -392,9 +392,14 @@ describe('FormWizard', () => {
       await waitFor(() => {
         expect(live).toHaveTextContent(/Validation error: Amount is required/i);
       });
-      // Stay on step 1 — original failure mode: errors must surface, not silent-block
+      // Stay on step 1 — original failure mode: errors must surface, not silent-block.
+      // Focus follows the validation result back to the first invalid control instead
+      // of leaving keyboard users stranded on the navigation button.
       expect(screen.getByText('Content for step 1')).toBeInTheDocument();
       expect(screen.getByRole('alert')).toHaveTextContent('Amount is required');
+      await waitFor(() => {
+        expect(screen.getByTestId('input-1')).toHaveFocus();
+      });
     });
 
     it('sets aria-busy while submitting', () => {
