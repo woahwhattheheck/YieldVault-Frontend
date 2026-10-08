@@ -43,9 +43,8 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
   const handleMax = () => setAmount(String(balance));
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!valid || submitting || pendingDeposit) return;
+  const submitDeposit = async () => {
+    if (!isConnected || !valid || submitting || pendingDeposit) return;
     setSubmitting(true);
     setMessage(null);
     setApiError(null);
@@ -83,6 +82,11 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await submitDeposit();
+  };
+
   return (
     <form className="vault-form" onSubmit={handleSubmit} data-testid="deposit-form">
       <div className="form-row">
@@ -113,7 +117,7 @@ export default function DepositForm({ vault, onSuccess }: DepositFormProps) {
 
       {touched && error && <p className="field-error">{error}</p>}
       {apiError && (
-        <ApiErrorState error={apiError} onRetry={apiError.retryable ? () => setApiError(null) : undefined} />
+        <ApiErrorState error={apiError} onRetry={apiError.retryable ? () => void submitDeposit() : undefined} />
       )}
       {message && !apiError && <p className="form-message">{message}</p>}
 
