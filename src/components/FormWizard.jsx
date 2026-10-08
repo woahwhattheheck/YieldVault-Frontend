@@ -71,6 +71,13 @@ export default function FormWizard({
     [validate],
   );
 
+  const focusFirstInvalidField = useCallback(() => {
+    requestAnimationFrame(() => {
+      const panel = headingRef.current?.closest('.wizard-panel');
+      panel?.querySelector('[aria-invalid="true"]')?.focus();
+    });
+  }, []);
+
   const goNext = useCallback(() => {
     if (submitting || currentStep >= totalSteps - 1) return;
 
@@ -83,12 +90,13 @@ export default function FormWizard({
           ? `Validation error: ${messages.join('. ')}`
           : 'Please fix the highlighted fields before continuing.',
       );
+      focusFirstInvalidField();
       return;
     }
     setErrors({});
     setDirection('forward');
     setCurrentStep((s) => s + 1);
-  }, [currentStep, totalSteps, collectErrors, submitting]);
+  }, [currentStep, totalSteps, collectErrors, focusFirstInvalidField, submitting]);
 
   const goBack = useCallback(() => {
     if (submitting || currentStep <= 0) return;
@@ -114,6 +122,7 @@ export default function FormWizard({
           ? `Validation error: ${messages.join('. ')}`
           : 'Please fix the highlighted fields before submitting.',
       );
+      focusFirstInvalidField();
       return;
     }
     setErrors({});
